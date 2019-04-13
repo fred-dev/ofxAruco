@@ -12,7 +12,8 @@
 ofxAruco::ofxAruco()
 :threaded(true)
 ,newDetectMarkers(false)
-,newDetectBoard(false){
+//,newDetectBoard(false)
+{
 
 }
 
@@ -24,10 +25,11 @@ void ofxAruco::setup(string calibrationFile,float w, float h, string boardConfig
 	size.width = w;
 	size.height = h;
 	markerSize = _markerSize;
-	detector.setThresholdMethod(aruco::MarkerDetector::ADPT_THRES);
+//    detector.setThresholdMethod(aruco::MarkerDetector::ADPT_THRES);
 
-	camParams.readFromFile(ofToDataPath(calibrationFile));
-	camParams.resize(cv::Size(w,h));
+//    camParams.readFromFile(ofToDataPath(calibrationFile));
+
+    camParams.resize(cv::Size(w,h));
 
 	maxAge = 7;
 
@@ -38,9 +40,13 @@ void ofxAruco::setup(string calibrationFile,float w, float h, string boardConfig
 		ofprojMatrix.getPtr()[i]=projMatrix[i];
 	}
 
+    
+    detector.setDictionary( "ARUCO_MIP_36h12");
+    detector.setDetectionMode(aruco::DM_NORMAL);
+
 	// bgraf
 	//    boardConfig.readFromFile(ofToDataPath(boardConfigFile));
-	addBoardConf(boardConfigFile);
+//    addBoardConf(boardConfigFile);
 
 	if(threaded) startThread();
 }
@@ -49,7 +55,7 @@ void ofxAruco::setupXML(string calibrationXML,float w, float h, string boardConf
 	size.width = w;
 	size.height = h;
 	markerSize = _markerSize;
-	detector.setThresholdMethod(aruco::MarkerDetector::ADPT_THRES);
+//    detector.setThresholdMethod(aruco::MarkerDetector::ADPT_THRES);
 	
 	
 
@@ -64,47 +70,47 @@ void ofxAruco::setupXML(string calibrationXML,float w, float h, string boardConf
 
 	// bgraf
 	//    boardConfig.readFromFile(ofToDataPath(boardConfigFile));
-	addBoardConf(boardConfigFile);
+//    addBoardConf(boardConfigFile);
 
 	if(threaded) startThread();
 }
 
-void ofxAruco::setUseHighlyReliableMarker(string dictionaryFile)
-{
-	//load dictionary
-	aruco::Dictionary D;
-	string path = ofFilePath::getAbsolutePath(dictionaryFile);
-	if (D.fromFile(path) == false) {
-		cerr << "Could not open dictionary" << endl;
-	};
+//void ofxAruco::setUseHighlyReliableMarker(string dictionaryFile)
+//{
+//    //load dictionary
+//    aruco::Dictionary D;
+//    string path = ofFilePath::getAbsolutePath(dictionaryFile);
+//    if (D.fromFile(path) == false) {
+//        cerr << "Could not open dictionary" << endl;
+//    };
+//
+//    if (D.size() == 0) {
+//        cerr << "Invalid dictionary" << endl;
+//    };
+//
+//    aruco::HighlyReliableMarkers::loadDictionary(D);
+//
+//    //setup parameters
+//    detector.enableLockedCornersMethod(false);
+//    detector.setMarkerDetectorFunction(aruco::HighlyReliableMarkers::detect);
+//    detector.setThresholdParams(21, 7);
+//    detector.setCornerRefinementMethod(aruco::MarkerDetector::LINES);
+//    detector.setWarpSize((D[0].n() + 2) * 8);
+//}
 
-	if (D.size() == 0) {
-		cerr << "Invalid dictionary" << endl;
-	};
+//void ofxAruco::addBoardConf(string boardConfigFile) {
+//    if(boardConfigFile!="") {
+//        aruco::BoardConfiguration boardConfig;
+//        boardConfig.readFromFile(ofToDataPath(boardConfigFile));
+//        boardConfigs.push_back(boardConfig);
+//        boards.push_back(aruco::Board());
+//        boardProbabilities.push_back(0.f);
+//    }
+//}
 
-	aruco::HighlyReliableMarkers::loadDictionary(D);
-
-	//setup parameters
-	detector.enableLockedCornersMethod(false);
-	detector.setMarkerDetectorFunction(aruco::HighlyReliableMarkers::detect);
-	detector.setThresholdParams(21, 7);
-	detector.setCornerRefinementMethod(aruco::MarkerDetector::LINES);
-	detector.setWarpSize((D[0].n() + 2) * 8);
-}
-
-void ofxAruco::addBoardConf(string boardConfigFile) {
-	if(boardConfigFile!="") {
-		aruco::BoardConfiguration boardConfig;
-		boardConfig.readFromFile(ofToDataPath(boardConfigFile));
-		boardConfigs.push_back(boardConfig);
-		boards.push_back(aruco::Board());
-		boardProbabilities.push_back(0.f);
-	}
-}
-
-vector<aruco::BoardConfiguration> & ofxAruco::getBoardConfigs(){
-	return boardConfigs;
-}
+//vector<aruco::BoardConfiguration> & ofxAruco::getBoardConfigs(){
+//    return boardConfigs;
+//}
 
 aruco::Marker * ofxAruco::findMarker(int id){
 	for(size_t i=0;i<backMarkers.size();i++){
@@ -125,6 +131,47 @@ ofxAruco::TrackedMarker * ofxAruco::findTrackedMarker(int id){
 	return NULL;
 }
 
+void ofxAruco::startCalibtration(){
+    calibrator = std::make_shared<aruco::Calibrator>();
+    //configure the calibrator
+    calibrator->setParams(size,markerSize);
+
+}
+
+int ofxAruco::getCalibrationImageCount(){
+    if ( calibrator!= nullptr ){
+        return calibrator->getNumberOfViews();
+    }
+    return -1;
+}
+
+void ofxAruco::saveCalibrationFile(){
+    aruco::CameraParameters camp;
+    ofLog() << "Saving Calibration File ... ";
+    
+    if ( calibrator!= nullptr && calibrator->getNumberOfViews() > 0 && calibrator->getCalibrationResults(camp)){
+        auto path = ofToDataPath("calib_new.yaml");
+        camp.saveToFile(path);
+        ofLog() << "Saving Calibration File to " << path;
+    }else{
+        ofLog() << "Something went wrong!";
+    }
+}
+
+void ofxAruco::calibrate(ofPixels & pixels){
+//    vector<aruco::Marker> detected_markers = detector.detect(TheInputImage);
+    if ( calibrator!= nullptr ){
+        cv::Mat mat = ofxCv::toCv(pixels);
+//        findMarkers(pixels);
+        markers = detector.detect(mat);
+        vector<aruco::Marker> detected_markers = markers;//detector.detect(mat);
+        if(detected_markers.size() > 20){
+            ofLog() << "Adding frame to calibration... " << detected_markers.size();
+            calibrator->addView(detected_markers);
+        }
+    }
+}
+
 void ofxAruco::detectMarkers(ofPixels & pixels){
 	if(!threaded){
 		findMarkers(pixels);
@@ -142,22 +189,22 @@ void ofxAruco::detectMarkers(ofPixels & pixels){
 	}
 }
 
-void ofxAruco::detectBoards(ofPixels & pixels){
-	if(!threaded){
-		findBoards(pixels);
-	}else{
-		lock();
-		frontPixels = pixels;
-		newDetectBoard = true;
-
-		if(foundMarkers){
-			swap(markers,intraMarkers);
-			foundMarkers = false;
-		}
-		condition.signal();
-		unlock();
-	}
-}
+//void ofxAruco::detectBoards(ofPixels & pixels){
+//    if(!threaded){
+//        findBoards(pixels);
+//    }else{
+//        lock();
+//        frontPixels = pixels;
+//        newDetectBoard = true;
+//
+//        if(foundMarkers){
+//            swap(markers,intraMarkers);
+//            foundMarkers = false;
+//        }
+//        condition.signal();
+//        unlock();
+//    }
+//}
 
 
 void ofxAruco::findMarkers(ofPixels & pixels){
@@ -211,21 +258,21 @@ void ofxAruco::findMarkers(ofPixels & pixels){
 
 }
 
-void ofxAruco::findBoards(ofPixels & pixels){
-	findMarkers(pixels);
-	for (unsigned int i = 0; i < boardConfigs.size(); i++) {
-		aruco::BoardConfiguration boardConfig = boardConfigs[i];
-//        aruco::Board board = boards[i];
-		boardProbabilities[i] = boardDetector.detect(backMarkers,boardConfig,boards[i],camParams,markerSize);
-		//        boardDetector.detect(backMarkers, boardConfig, board);
-	}
-
-	if(threaded){
-		lock();
-		foundBoard = true;
-		unlock();
-	}
-}
+//void ofxAruco::findBoards(ofPixels & pixels){
+//    findMarkers(pixels);
+//    for (unsigned int i = 0; i < boardConfigs.size(); i++) {
+//        aruco::BoardConfiguration boardConfig = boardConfigs[i];
+////        aruco::Board board = boards[i];
+//        boardProbabilities[i] = boardDetector.detect(backMarkers,boardConfig,boards[i],camParams,markerSize);
+//        //        boardDetector.detect(backMarkers, boardConfig, board);
+//    }
+//
+//    if(threaded){
+//        lock();
+//        foundBoard = true;
+//        unlock();
+//    }
+//}
 
 void ofxAruco::draw(){
 	glMatrixMode( GL_PROJECTION );
@@ -266,7 +313,7 @@ void ofxAruco::draw(){
 
 void ofxAruco::setMinMaxMarkerDetectionSize(float minSize, float maxSize)
 {
-	detector.setMinMaxSize(minSize, maxSize);
+//    detector.setMinMaxSize(minSize, maxSize);
 }
 
 void ofxAruco::setMarkerSize(float markerSize_)
@@ -280,28 +327,28 @@ vector<aruco::Marker> & ofxAruco::getMarkers(){
 
 // bgraf
 //aruco::Board & ofxAruco::getBoards(){
-vector<aruco::Board> & ofxAruco::getBoards(){
-	return boards;
-}
+//vector<aruco::Board> & ofxAruco::getBoards(){
+//    return boards;
+//}
 
 int ofxAruco::getNumMarkers(){
 	return markers.size();
 }
 
-int ofxAruco::getNumBoards() {
-	return boards.size();
-}
-
-float ofxAruco::getBoardProbability(){
-	float prop = 0.f;
-	for(unsigned int i = 0; i < boardProbabilities.size(); i++) {
-		prop += boardProbabilities[i];
-	}
-	return prop;
-}
-vector<float> ofxAruco::getBoardProbabilities() {
-	return boardProbabilities;
-}
+//int ofxAruco::getNumBoards() {
+//    return boards.size();
+//}
+//
+//float ofxAruco::getBoardProbability(){
+//    float prop = 0.f;
+//    for(unsigned int i = 0; i < boardProbabilities.size(); i++) {
+//        prop += boardProbabilities[i];
+//    }
+//    return prop;
+//}
+//vector<float> ofxAruco::getBoardProbabilities() {
+//    return boardProbabilities;
+//}
 
 void ofxAruco::begin(int marker){
 	glMatrixMode( GL_PROJECTION );
@@ -344,34 +391,34 @@ void ofxAruco::end(){
 
 // bgraf
 //void ofxAruco::beginBoard(){
-void ofxAruco::beginBoard(int boardnum) {
-	glMatrixMode( GL_PROJECTION );
-	glPushMatrix();
-
-	camParams.glGetProjectionMatrix(size,size,projMatrix,0.05,100,false);
-
-	for(int i=0;i<16;i++){
-		ofprojMatrix.getPtr()[i]=projMatrix[i];
-	}
-
-	glLoadIdentity();
-	glLoadMatrixf(ofprojMatrix.getPtr());
-
-
-	double matrix[16];
-	float matrixf[16];
-	//  bgraf:
-	//	board.glGetModelViewMatrix(matrix);
-	boards[boardnum].glGetModelViewMatrix(matrix);
-	for(int i=0;i<16;i++){
-		matrixf[i] = matrix[i];
-	}
-
-	glMatrixMode( GL_MODELVIEW );
-	glPushMatrix();
-
-	glLoadMatrixf(matrixf);
-}
+//void ofxAruco::beginBoard(int boardnum) {
+//    glMatrixMode( GL_PROJECTION );
+//    glPushMatrix();
+//
+//    camParams.glGetProjectionMatrix(size,size,projMatrix,0.05,100,false);
+//
+//    for(int i=0;i<16;i++){
+//        ofprojMatrix.getPtr()[i]=projMatrix[i];
+//    }
+//
+//    glLoadIdentity();
+//    glLoadMatrixf(ofprojMatrix.getPtr());
+//
+//
+//    double matrix[16];
+//    float matrixf[16];
+//    //  bgraf:
+//    //    board.glGetModelViewMatrix(matrix);
+//    boards[boardnum].glGetModelViewMatrix(matrix);
+//    for(int i=0;i<16;i++){
+//        matrixf[i] = matrix[i];
+//    }
+//
+//    glMatrixMode( GL_MODELVIEW );
+//    glPushMatrix();
+//
+//    glLoadMatrixf(matrixf);
+//}
 
 ofMatrix4x4 ofxAruco::getProjectionMatrix(){
 	camParams.glGetProjectionMatrix(size,size,projMatrix,0.05,100,false);
@@ -393,40 +440,40 @@ ofMatrix4x4 ofxAruco::getModelViewMatrix(int marker){
 	return modelview;
 }
 
-ofMatrix4x4 ofxAruco::getModelViewMatrixBoard(int board){
-	double matrix[16];
-	ofMatrix4x4 modelview;
-	boards[board].glGetModelViewMatrix(matrix);
+//ofMatrix4x4 ofxAruco::getModelViewMatrixBoard(int board){
+//    double matrix[16];
+//    ofMatrix4x4 modelview;
+//    boards[board].glGetModelViewMatrix(matrix);
+//
+//    for(int i=0;i<16;i++){
+//        modelview.getPtr()[i]=matrix[i];
+//    }
+//
+//    return modelview;
+//}
 
-	for(int i=0;i<16;i++){
-		modelview.getPtr()[i]=matrix[i];
-	}
+//// bgraf (int board added)
+//ofVec3f ofxAruco::getBoardTranslation(int board){
+//    return ofVec3f (boards[board].Tvec.at<float>(0,0),
+//                    boards[board].Tvec.at<float>(1,0),
+//                    -boards[board].Tvec.at<float>(2,0));
+//}
 
-	return modelview;
-}
+//// bgraf (int board added)
+//ofQuaternion ofxAruco::getBoardRotation(int board){
+//    ofMatrix4x4 mv = ofMatrix4x4::getInverseOf(ofMatrix4x4::getTransposedOf(getModelViewMatrixBoard(board)));
+//    ofVec3f t;
+//    ofQuaternion q;
+//    ofQuaternion so;
+//    ofVec3f s;
+//    mv.decompose(t,q,s,so);
+//    return q;
+//}
 
-// bgraf (int board added)
-ofVec3f ofxAruco::getBoardTranslation(int board){
-	return ofVec3f (boards[board].Tvec.at<float>(0,0),
-					boards[board].Tvec.at<float>(1,0),
-					-boards[board].Tvec.at<float>(2,0));
-}
-
-// bgraf (int board added)
-ofQuaternion ofxAruco::getBoardRotation(int board){
-	ofMatrix4x4 mv = ofMatrix4x4::getInverseOf(ofMatrix4x4::getTransposedOf(getModelViewMatrixBoard(board)));
-	ofVec3f t;
-	ofQuaternion q;
-	ofQuaternion so;
-	ofVec3f s;
-	mv.decompose(t,q,s,so);
-	return q;
-}
-
-void ofxAruco::getBoardImage(ofPixels & pixels){
-	/*cv::Mat m = aruco::Board::createBoardImage(boardConfig.size,boardConfig._markerSizePix,boardConfig._markerDistancePix,0,boardConfig);
-	 pixels.setFromPixels(m.data,m.cols,m.rows,OF_IMAGE_GRAYSCALE);*/
-}
+//void ofxAruco::getBoardImage(ofPixels & pixels){
+//    /*cv::Mat m = aruco::Board::createBoardImage(boardConfig.size,boardConfig._markerSizePix,boardConfig._markerDistancePix,0,boardConfig);
+//     pixels.setFromPixels(m.data,m.cols,m.rows,OF_IMAGE_GRAYSCALE);*/
+//}
 
 void ofxAruco::getMarkerImage(int markerID, int size, ofPixels & pixels){
 	/*cv::Mat m = aruco::Marker::createMarkerImage(markerID,size);
@@ -438,47 +485,49 @@ void ofxAruco::getThresholdImage(ofPixels & pixels){
 	pixels.setFromPixels(m.data,m.cols,m.rows,OF_IMAGE_GRAYSCALE);
 }
 
-double ofxAruco::getThresholdParam1(){
-	double param1, param2;
-	detector.getThresholdParams(param1,param2);
-	return param1;
-}
+//double ofxAruco::getThresholdParam1(){
+//    double param1, param2;
+//    detector.getThresholdParams(param1,param2);
+//    return param1;
+//}
+//
+//double ofxAruco::getThresholdParam2(){
+//    double param1, param2;
+//    detector.getThresholdParams(param1,param2);
+//    return param1;
+//}
 
-double ofxAruco::getThresholdParam2(){
-	double param1, param2;
-	detector.getThresholdParams(param1,param2);
-	return param1;
-}
+//void ofxAruco::setThresholdParams(double param1, double param2){
+//    detector.setThresholdParams(param1,param2);
+//}
 
-void ofxAruco::setThresholdParams(double param1, double param2){
-	detector.setThresholdParams(param1,param2);
-}
-
-void ofxAruco::setThresholdMethod(aruco::MarkerDetector::ThresholdMethods method){
-	detector.setThresholdMethod(method);
-}
+//void ofxAruco::setThresholdMethod(aruco::MarkerDetector::ThresMethod method){
+//    detector.setThresholdMethod(method);
+//}
 
 void ofxAruco::threadedFunction(){
 	while(isThreadRunning()){
 		lock();
-		if(!newDetectBoard && !newDetectMarkers) condition.wait(mutex);
+		if(!newDetectMarkers) condition.wait(mutex);
+//        if(!newDetectBoard && !newDetectMarkers) condition.wait(mutex);
 		bool detectMarkers = false;
 		bool detectBoard = false;
-		if(newDetectMarkers || newDetectBoard){
+//        if(newDetectMarkers || newDetectBoard){
+        if(newDetectMarkers){
 			swap(frontPixels, backPixels);
 			detectMarkers = newDetectMarkers;
-			detectBoard = newDetectBoard;
+//            detectBoard = newDetectBoard;
 
 			newDetectMarkers = false;
-			newDetectBoard = false;
+//            newDetectBoard = false;
 		}
 		unlock();
 
 		if(detectMarkers){
 			findMarkers(backPixels);
 		}
-		if(detectBoard){
-			findBoards(backPixels);
-		}
+//        if(detectBoard){
+//            findBoards(backPixels);
+//        }
 	}
 }
