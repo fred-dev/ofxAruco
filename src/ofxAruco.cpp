@@ -131,10 +131,10 @@ ofxAruco::TrackedMarker * ofxAruco::findTrackedMarker(int id){
 	return NULL;
 }
 
-void ofxAruco::startCalibtration(){
+void ofxAruco::startCalibtration(float calibrationMarkerSize){
     calibrator = std::make_shared<aruco::Calibrator>();
     //configure the calibrator
-    calibrator->setParams(size,markerSize);
+    calibrator->setParams(size,calibrationMarkerSize);
 
 }
 
@@ -145,12 +145,11 @@ int ofxAruco::getCalibrationImageCount(){
     return -1;
 }
 
-void ofxAruco::saveCalibrationFile(){
+void ofxAruco::saveCalibrationFile(string filename){
     aruco::CameraParameters camp;
     ofLog() << "Saving Calibration File ... ";
-    
     if ( calibrator!= nullptr && calibrator->getNumberOfViews() > 0 && calibrator->getCalibrationResults(camp)){
-        auto path = ofToDataPath("calib_new.yaml");
+        auto path = ofToDataPath(filename);
         camp.saveToFile(path);
         ofLog() << "Saving Calibration File to " << path;
     }else{
@@ -159,13 +158,11 @@ void ofxAruco::saveCalibrationFile(){
 }
 
 void ofxAruco::calibrate(ofPixels & pixels){
-//    vector<aruco::Marker> detected_markers = detector.detect(TheInputImage);
     if ( calibrator!= nullptr ){
         cv::Mat mat = ofxCv::toCv(pixels);
-//        findMarkers(pixels);
         markers = detector.detect(mat);
         vector<aruco::Marker> detected_markers = markers;//detector.detect(mat);
-        if(detected_markers.size() > 20){
+        if(detected_markers.size() == 24){
             ofLog() << "Adding frame to calibration... " << detected_markers.size();
             calibrator->addView(detected_markers);
         }

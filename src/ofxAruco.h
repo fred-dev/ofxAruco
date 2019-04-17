@@ -32,9 +32,9 @@ public:
 //    void setUseHighlyReliableMarker(string dictionaryFile);
     
 //    void addBoardConf(string boardConfig="");
-    void startCalibtration();
+    void startCalibtration(float calibrationMarkerSize);
     int getCalibrationImageCount();
-    void saveCalibrationFile();
+    void saveCalibrationFile(string filepath="calibration.yaml");
     void calibrate(ofPixels & pixels);
 	void detectMarkers(ofPixels & pixels);
 //    void detectBoards(ofPixels & pixels);
