@@ -35,8 +35,9 @@ void ofApp::setup(){
 	}
 
 	//aruco.setThreaded(false);
-	aruco.setup("intrinsics.int", video->getWidth(), video->getHeight(), boardName);
-	aruco.getBoardImage(board.getPixels());
+    //aruco.setupXML(<#string calibrationXML#>, <#float w#>, <#float h#>)
+	aruco.setupXML("000008693612.yml", 1280, 720);
+	//aruco.getBoardImage(board.getPixels());
 	board.update();
 
 	showMarkers = true;
@@ -51,7 +52,7 @@ void ofApp::setup(){
 void ofApp::update(){
 	video->update();
 	if(video->isFrameNew()){
-		aruco.detectBoards(video->getPixels());
+		aruco.detectMarkers(video->getPixels());
 	}
 }
 
@@ -71,13 +72,13 @@ void ofApp::draw(){
 	}
 
 
-	if (showBoard && aruco.getBoardProbability()>0.03) {
-		for (int i = 0; i<aruco.getNumBoards(); i++) {
-			aruco.beginBoard(i);
-			drawMarker(.5, ofColor::red);
-			aruco.end();
-		}
-	}
+//	if (showBoard && aruco.getBoardProbability()>0.03) {
+//		for (int i = 0; i<aruco.getNumBoards(); i++) {
+//			aruco.beginBoard(i);
+//			drawMarker(.5, ofColor::red);
+//			aruco.end();
+//		}
+//	}
 
 
 	ofSetColor(255);

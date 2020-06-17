@@ -186,21 +186,21 @@ namespace aruco
         cv::Mat MCamera, MDist;
 
 
-        fs["image_width"] >> w;
-        fs["image_height"] >> h;
-        fs["distortion_coefficients"] >> MDist;
-        fs["camera_matrix"] >> MCamera;
+        fs["imageSize_width"] >> w;
+        fs["imageSize_height"] >> h;
+        fs["distCoeffs"] >> MDist;
+        fs["cameraMatrix"] >> MCamera;
 
         if (MCamera.cols == 0 || MCamera.rows == 0){
-            fs["Camera_Matrix"] >> MCamera;
+            fs["cameraMatrix"] >> MCamera;
             if (MCamera.cols == 0 || MCamera.rows == 0)
                 throw cv::Exception(9007, "File :" + filePath + " does not contains valid camera matrix",
                                     "CameraParameters::readFromXML", __FILE__, __LINE__);
         }
 
         if (w == -1 || h == 0){
-            fs["image_Width"] >> w;
-            fs["image_Height"] >> h;
+            fs["imageSize_width"] >> w;
+            fs["imageSize_height"] >> h;
             if (w == -1 || h == 0)
                 throw cv::Exception(9007, "File :" + filePath + " does not contains valid camera dimensions",
                                     "CameraParameters::readFromXML", __FILE__, __LINE__);
@@ -211,7 +211,7 @@ namespace aruco
             CameraMatrix = MCamera;
 
         if (MDist.total() < 4){
-            fs["Distortion_Coefficients"] >> MDist;
+            fs["distCoeffs"] >> MDist;
             if (MDist.total() < 4)
                 throw cv::Exception(9007, "File :" + filePath + " does not contains valid distortion_coefficients",
                                     "CameraParameters::readFromXML", __FILE__, __LINE__);
