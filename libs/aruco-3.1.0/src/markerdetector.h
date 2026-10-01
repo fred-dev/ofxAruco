@@ -162,7 +162,7 @@ public:
         DetectionMode detectMode=DM_NORMAL;
 
         //maximum number of parallel threads
-        int maxThreads=1;//-1 means all
+        int maxThreads=-1;//-1 means all
 
         // border around image limits in which corners are not allowed to be detected. (0,1)
         float borderDistThres=0.015f;

@@ -43,7 +43,7 @@ public:
 
 	
 
-    
+    void close();
 	vector<aruco::Marker> & getMarkers();
     //    bgraf
     //	aruco::Board & getBoard();

@@ -203,7 +203,9 @@ void ofxAruco::detectMarkers(ofPixels & pixels){
 //    }
 //}
 
-
+void ofxAruco::close(){
+    detector.~MarkerDetector();
+}
 void ofxAruco::findMarkers(ofPixels & pixels){
 	cv::Mat mat = ofxCv::toCv(pixels);
 	detector.detect(mat,backMarkers,camParams,markerSize);
