@@ -1,6 +1,9 @@
 ofxAruco
 ========
 
+> **About this fork:** Fork of [saynono/ofxAruco](https://github.com/saynono/ofxAruco) with one fix for compatibility with OpenCV camera calibration files.
+
+
 openFrameworks addon for the AR library ArUco: 
  - http://www.uco.es/investiga/grupos/ava/node/26
 
