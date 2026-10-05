@@ -107,6 +107,9 @@ and `"type": "custom"` (a list of markers with their 4 corners in 3D). Old ArUco
 Print boards with **example-print-boards**: it writes a PNG that prints at the
 right physical size at 100% scale, plus the matching JSON. Always measure the
 printed board and fix the lengths in the JSON if the printer scaled it.
+It has presets on a slider: A4 ChArUco boards 4x3, 7x5 and 10x8, A4 sheets of
+cut-out marker cards with the same counts and marker sizes (ids 20 and up), an
+A1 single marker, and "user" for your own settings.
 
 The detector dictionary must match the boards' dictionary.
 
@@ -218,7 +221,7 @@ Examples
 | folder | what | needs |
 |---|---|---|
 | `example` | markers + board on the included video, 3D cubes on the markers. `v` switches to a webcam | nothing |
-| `example-print-boards` | make printable ChArUco / grid boards / markers + their JSON, self-checked by detection | nothing |
+| `example-print-boards` | make printable ChArUco / grid boards / markers / cut-out cards + their JSON, with presets, self-checked by detection | nothing |
 | `example-multi-camera` | calibrate several cameras together, 3D view, save JSON. Runs with **3 simulated cameras** (with ground truth), `m` switches to webcams (`bin/data/cameras.json`) | nothing / 2+ webcams |
 | `tests/ofxArucoTests` | automated self test: renders boards with known poses and checks detection, poses, calibration, threading, files, the video | nothing |
 
