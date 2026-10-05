@@ -61,10 +61,16 @@ icon.rc
 *.so
 *.dylib
 
-# --- Files written by the examples / tests at runtime ---
+# --- Files written by the examples / tests at runtime, and camera specific
+#     calibrations (keep your own camera data out of the addon) ---
 **/bin/data/settings.json
+**/bin/data/aruco_settings.json
+**/bin/data/calibration.json
 **/bin/data/multicam_calibration.json
 **/bin/data/cameras.json
+**/bin/data/webcam*_intrinsics.yml
+example-multi-camera/bin/data/*
+!example-multi-camera/bin/data/board.json
 example-print-boards/bin/data/*
 !example-print-boards/bin/data/.gitkeep
 tests/*/bin/data/*
