@@ -1,5 +1,28 @@
-*.DS_* 
-example/bin/example*
-example/obj
-example/bin/libs
-example/*.creator*
+*.DS_*
+
+# build products (Visual Studio / make / Xcode)
+**/bin/*.exe
+**/bin/*.dll
+**/bin/*.pdb
+**/bin/*.exp
+**/bin/*.lib
+**/bin/*.ilk
+**/bin/*.log
+**/bin/*.app
+**/bin/libs/
+**/obj/
+**/dll/
+**/.vs/
+**/*.vcxproj.user
+**/*.creator*
+**/*.xcodeproj/
+**/*.xcconfig
+
+# files written by the examples / tests at runtime
+**/bin/data/settings.json
+**/bin/data/multicam_calibration.json
+**/bin/data/cameras.json
+example-print-boards/bin/data/*
+!example-print-boards/bin/data/.gitkeep
+tests/*/bin/data/*
+!tests/*/bin/data/.gitkeep
