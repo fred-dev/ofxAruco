@@ -1,4 +1,3 @@
-ofxAruco
 ofxOpenCv
-ofxCv
-ofxPoco
+ofxAruco
+ofxGui
