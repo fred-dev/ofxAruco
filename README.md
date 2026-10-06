@@ -160,7 +160,7 @@ ofxArucoCalibrator::save("calibrations/mycam/1920x1080.yml", result);
 mode of each aspect ratio, a quick verification of the scaled result for the others. Load the
 result for the resolution you run at with
 `intrinsics.loadForResolution("calibrations/mycam", width, height)`.
-`example-calibrate-camera` is a complete tool built on these: it lists a USB / built in camera's native modes (macOS, Windows) and calibrates them all, saving `calibrations/<camera>/<camera>_<width>x<height>.yml`. `example-calibrate-blackmagic` does the same for cameras on a Blackmagic capture device.
+`example-calibrate-camera` is a complete tool built on these: it lists a USB / built in camera's native modes (macOS, Windows) and calibrates them all, saving `calibrations/<camera>/<camera>_<width>x<height>.yml`. `example-calibrate-blackmagic` does the same for cameras on a Blackmagic capture device, `example-calibrate-ios` for the back cameras of iPhones and iPads.
 
 
 Multi camera calibration
@@ -255,6 +255,7 @@ Examples
 | `example` | markers + board on the included video, 3D cubes on the markers. `v` switches to a webcam | nothing |
 | `example-print-boards` | make printable ChArUco / grid boards / markers / cut-out cards + their YAML, with presets, self-checked by detection | nothing |
 | `example-calibrate-camera` | calibrate every native resolution of a USB / built in camera with a ChArUco board (macOS, Windows) | a camera + printed ChArUco board |
+| `example-calibrate-ios` | calibrate every native format of the back lenses of an iPhone / iPad (lens, focus lock, field of view aware) | iOS device + board |
 | `example-calibrate-blackmagic` | the same through a Blackmagic capture device: calibrates each resolution the camera outputs, asks for camera body, sensor setting, lens and lens settings, which name the files | ofxBlackmagic, Desktop Video, camera + board |
 | `example-multi-camera` | calibrate several cameras together, 3D view, save JSON. Runs with **3 simulated cameras** (with ground truth), `m` switches to webcams (`bin/data/cameras.json`) | nothing / 2+ webcams |
 | `tests/ofxArucoTests` | automated self test: renders boards with known poses and checks detection, poses, calibration, threading, files, the video | nothing |

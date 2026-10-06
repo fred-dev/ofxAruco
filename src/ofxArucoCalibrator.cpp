@@ -519,22 +519,26 @@ void ofxArucoCalibrationPlan::build(const std::vector<ofxArucoCameraMode> & inpu
 			modes.push_back(m);
 		} else {
 			it->fps = std::max(it->fps, m.fps);
+			it->fov = std::max(it->fov, m.fov);
 		}
 	}
 	std::sort(modes.begin(), modes.end(), [](const ofxArucoCameraMode & a, const ofxArucoCameraMode & b) {
 		return a.width * a.height > b.width * b.height;
 	});
-	// groups by aspect ratio, in order of their largest mode
-	std::vector<float> groupRatios;
+	// groups by aspect ratio (and field of view when known), in order of their largest mode
+	std::vector<float> groupRatios, groupFovs;
 	std::vector<std::vector<ofxArucoCameraMode>> groups;
 	for (auto & m : modes) {
 		const float r = float(m.width) / m.height;
 		size_t g = 0;
 		for (; g < groupRatios.size(); g++) {
-			if (std::abs(r - groupRatios[g]) / groupRatios[g] < 0.01f) break;
+			const bool sameRatio = std::abs(r - groupRatios[g]) / groupRatios[g] < 0.01f;
+			const bool sameFov = m.fov <= 0 || groupFovs[g] <= 0 || std::abs(m.fov - groupFovs[g]) / groupFovs[g] < 0.01f;
+			if (sameRatio && sameFov) break;
 		}
 		if (g == groupRatios.size()) {
 			groupRatios.push_back(r);
+			groupFovs.push_back(m.fov);
 			groups.emplace_back();
 		}
 		groups[g].push_back(m);
@@ -599,6 +603,7 @@ bool ofxArucoCalibrationPlan::saveIndex(const std::string & folder, const std::m
 			fs << "{";
 			fs << "file" << t.getFileName();
 			fs << "width" << t.mode.width << "height" << t.mode.height << "fps" << t.mode.fps;
+			if (t.mode.fov > 0) fs << "fov" << t.mode.fov;
 			fs << "aspect" << aspectName(t.mode.width, t.mode.height);
 			fs << "kind" << toString(t.kind) << "status" << toString(t.status);
 			fs << "rms" << t.rms << "views" << t.samples;

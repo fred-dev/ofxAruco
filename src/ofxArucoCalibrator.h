@@ -150,6 +150,9 @@ struct ofxArucoCameraMode {
 	int width = 0;
 	int height = 0;
 	float fps = 0; // max frame rate (0 = unknown)
+	float fov = 0; // horizontal field of view in degrees, if the camera reports it (0 = unknown).
+				   // Modes with the same aspect ratio but a different field of view crop the
+				   // sensor: they are planned as separate full calibrations.
 	std::string getName() const { return ofToString(width) + "x" + ofToString(height); }
 };
 
