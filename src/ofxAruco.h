@@ -31,6 +31,7 @@
 #include "ofxArucoIntrinsics.h"
 #include "ofxArucoBoard.h"
 #include "ofxArucoMultiCamCalibration.h"
+#include "ofxArucoCalibrator.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -61,7 +62,7 @@ public:
 	// Boards: returns the board index, or -1 on failure. All boards should use the
 	// same dictionary as the detector (a warning is logged otherwise).
 	int addBoard(const ofxArucoBoard & board);
-	int loadBoard(const std::string & jsonPath);
+	int loadBoard(const std::string & path); // .yml (default) or .json, see ofxArucoBoard::load()
 	void clearBoards();
 	const std::vector<ofxArucoBoard> & getBoards() const { return boards; }
 

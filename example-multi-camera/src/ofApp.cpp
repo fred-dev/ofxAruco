@@ -45,11 +45,11 @@ void ofApp::setup() {
 
 void ofApp::loadOrCreateBoard() {
 	// The board must match what you printed. Default: ChArUco 7x5, 55mm squares, 41mm markers, DICT_5X5_100 (A3).
-	if (!ofFile::doesFileExist("board.json") || !board.load("board.json")) {
+	if (!ofFile::doesFileExist("board.yml") || !board.load("board.yml")) {
 		board = ofxArucoBoard::makeCharuco(7, 5, 0.055f, 0.041f, cv::aruco::DICT_5X5_100);
 		board.setName("charuco_7x5_55mm_41mm_DICT_5X5_100_id0");
-		board.save("board.json");
-		ofLogNotice() << "created bin/data/board.json (print it with example-print-boards)";
+		board.save("board.yml");
+		ofLogNotice() << "created bin/data/board.yml (print it with example-print-boards)";
 	}
 }
 

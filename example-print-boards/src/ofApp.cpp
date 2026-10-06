@@ -80,7 +80,7 @@ void ofApp::setup() {
 	dictionaryName.setSerializable(false);
 	gui.setDefaultWidth(330);
 	gui.setup(params, "settings.json", 10, 10);
-	gui.add(saveButton.setup("save png + json  (s)"));
+	gui.add(saveButton.setup("save png + yml  (s)"));
 
 	listeners.push(params.parameterChangedE().newListener([this](ofAbstractParameter & p) {
 		const std::string & n = p.getName();
@@ -253,10 +253,10 @@ void ofApp::save() {
 	if (!pixels.isAllocated()) return;
 	const std::string name = getFileName();
 	ofxArucoUtils::savePngWithDpi(pixels, name + ".png", dpi); // prints at the right size at 100%
-	board.save(name + ".json");
+	board.save(name + ".yml");
 	saveSettings();
-	ofLogNotice() << "saved " << ofToDataPath(name + ".png", true) << " and " << name << ".json";
-	status += "\nsaved bin/data/" + name + ".png + .json";
+	ofLogNotice() << "saved " << ofToDataPath(name + ".png", true) << " and " << name << ".yml";
+	status += "\nsaved bin/data/" + name + ".png + .yml";
 }
 
 //--------------------------------------------------------------
@@ -292,7 +292,7 @@ void ofApp::draw() {
 		ofDrawBitmapStringHighlight(papers[paper].name, sheet.x + 4, sheet.getBottom() - 6);
 	}
 	ofDrawBitmapStringHighlight(status, 360, ofGetHeight() - 105);
-	ofDrawBitmapStringHighlight("Print at 100% scale, then measure and fix the sizes in the .json if needed.", 360, ofGetHeight() - 15);
+	ofDrawBitmapStringHighlight("Print at 100% scale, then measure and fix the sizes in the .yml if needed.", 360, ofGetHeight() - 15);
 	gui.draw();
 }
 

@@ -6,21 +6,11 @@ void ofApp::setup() {
 	ofSetVerticalSync(true);
 	ofBackground(30);
 
-	// 1. detector: the video uses the original ArUco dictionary.
-	//    For your own markers prefer DICT_5X5_100 or DICT_6X6_250 (see example-print-boards).
+	// 1. detector (the dictionary is set by useVideoFile() / useWebcam())
 	aruco.setup(cv::aruco::DICT_ARUCO_ORIGINAL);
 
 	// 2. camera intrinsics (needed for 3D poses). The video was shot at 640x480 with this calibration.
 	aruco.loadIntrinsics("intrinsics.yml");
-
-	// 3. side of one printed marker, in meters (needed for single marker poses)
-	aruco.markerLength = 0.035f;
-
-	// 4. optional: a board. This one is an old ArUco 1.x layout, scaled so one marker is 3.5cm.
-	ofxArucoBoard board;
-	if (board.loadLegacyAruco("boardConfiguration.yml", 0.035f, cv::aruco::DICT_ARUCO_ORIGINAL)) {
-		aruco.addBoard(board);
-	}
 
 	// GUI: ofxAruco exposes all its settings as ofParameters
 	gui.setup("settings", "settings.json", 650, 10);
@@ -34,13 +24,40 @@ void ofApp::setup() {
 	if (ofFile::doesFileExist("settings.json")) gui.loadFromFile("settings.json");
 	threadedListener = threaded.newListener([this](bool & t) { aruco.setThreaded(t); });
 	aruco.setThreaded(threaded);
-	aruco.dictionary = cv::aruco::DICT_ARUCO_ORIGINAL; // the video needs this one
 
 	useVideoFile();
 }
 
+// The video: original ArUco dictionary, 3.5 cm markers, an old ArUco 1.x board.
+void ofApp::useVideoBoard() {
+	aruco.clearBoards();
+	aruco.dictionary = cv::aruco::DICT_ARUCO_ORIGINAL;
+	aruco.markerLength = 0.035f; // side of one printed marker, in meters (for single marker poses)
+	ofxArucoBoard board;
+	if (board.loadLegacyAruco("boardConfiguration.yml", 0.035f, cv::aruco::DICT_ARUCO_ORIGINAL)) {
+		aruco.addBoard(board);
+	}
+}
+
+// Your printed board (a .yml saved by example-print-boards). The detector takes
+// the board's dictionary, so single markers of that dictionary (e.g. the cut-out
+// cards) are found too. Single marker poses use the board's marker length.
+void ofApp::useMyBoard() {
+	aruco.clearBoards();
+	ofxArucoBoard board;
+	if (!board.load(myBoardFile)) {
+		ofLogError() << "could not load " << myBoardFile << ", keeping dictionary " << aruco.dictionaryName.get();
+		return;
+	}
+	aruco.dictionary = board.getDictionary();
+	if (board.getMarkerLength() > 0) aruco.markerLength = board.getMarkerLength();
+	aruco.addBoard(board);
+	ofLogNotice() << "using " << myBoardFile << " (" << aruco.dictionaryName.get() << ")";
+}
+
 void ofApp::useVideoFile() {
 	grabber.close();
+	useVideoBoard();
 	player.load("videoboard.mp4");
 	player.setLoopState(OF_LOOP_NORMAL);
 	player.play();
@@ -59,6 +76,7 @@ void ofApp::useWebcam(int deviceId) {
 	}
 	video = &grabber;
 	usingWebcam = true;
+	useMyBoard();
 	// NOTE: intrinsics.yml is for the camera of the video, not yours. Poses will be
 	// approximate until you calibrate your camera and load its intrinsics.
 }
@@ -115,7 +133,7 @@ void ofApp::draw() {
 	const auto & r = aruco.getResult();
 	std::stringstream ss;
 	ss << "source: " << (usingWebcam ? "webcam" : "videoboard.mp4") << "\n"
-	   << "markers: " << aruco.getNumMarkers();
+	   << "dictionary: " << aruco.dictionaryName.get() << "   markers: " << aruco.getNumMarkers();
 	if (aruco.getNumBoards() > 0) {
 		const auto & bp = aruco.getBoardPose(0);
 		ss << "   board: " << (bp.found ? "found" : "-") << " (" << bp.numPoints << " pts, "

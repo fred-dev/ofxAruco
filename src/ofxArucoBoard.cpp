@@ -138,21 +138,59 @@ ofJson ofxArucoBoard::toJson() const {
 	return j;
 }
 
+// ArUco marker map ("aruco_bc_*" keys, as written by the ArUco library and by
+// save() for custom boards). mInfoType 1 = meters, 0 = pixels (ArUco 1.x).
+static bool readMarkerMap(const ofJson & j, std::vector<int> & ids, std::vector<std::array<glm::vec3, 4>> & corners) {
+	if (!j.contains("aruco_bc_markers")) return false;
+	for (auto & m : j.at("aruco_bc_markers")) {
+		ids.push_back(m.at("id"));
+		std::array<glm::vec3, 4> c;
+		for (int k = 0; k < 4; k++) {
+			auto & p = m.at("corners")[k];
+			c[k] = { p[0].get<float>(), p[1].get<float>(), p.size() > 2 ? p[2].get<float>() : 0.f };
+		}
+		corners.push_back(c);
+	}
+	return !ids.empty();
+}
+
+static int dictionaryFromAnyName(const std::string & name) {
+	int d = ofxArucoUtils::dictionaryFromName(name);
+	if (d < 0) d = ofxArucoUtils::dictionaryFromName("DICT_" + name); // ArUco style: "5X5_100", "ARUCO_ORIGINAL"
+	if (d < 0 && name == "ARUCO") d = cv::aruco::DICT_ARUCO_ORIGINAL;
+	return d;
+}
+
 bool ofxArucoBoard::fromJson(const ofJson & j) {
 	try {
-		const std::string t = j.at("type").get<std::string>();
-		const std::string dictName = j.value("dictionary", std::string("DICT_5X5_100"));
-		const int dict = ofxArucoUtils::dictionaryFromName(dictName);
+		// a plain ArUco marker map (no "type"): a custom board, if it is in meters
+		const std::string t = j.contains("type") ? j.at("type").get<std::string>() : (j.contains("aruco_bc_markers") ? "custom" : "");
+		if (t.empty()) {
+			ofLogError("ofxArucoBoard") << "not a board file (no \"type\" and no \"aruco_bc_markers\")";
+			return false;
+		}
+		std::string dictName = j.value("dictionary", std::string());
+		if (dictName.empty()) dictName = j.value("aruco_bc_dict", std::string("DICT_5X5_100"));
+		const int dict = dictionaryFromAnyName(dictName);
 		if (dict < 0) {
 			ofLogError("ofxArucoBoard") << "unknown dictionary " << dictName;
 			return false;
 		}
 		if (t == "charuco") {
 			*this = makeCharuco(j.at("squaresX"), j.at("squaresY"), j.at("squareLength"), j.at("markerLength"),
-				dict, j.value("firstMarkerId", 0), j.value("legacyPattern", false));
+				dict, j.value("firstMarkerId", 0), ofxArucoUtils::getBool(j, "legacyPattern", false));
 		} else if (t == "grid") {
 			*this = makeGrid(j.at("markersX"), j.at("markersY"), j.at("markerLength"), j.at("markerSeparation"),
 				dict, j.value("firstMarkerId", 0));
+		} else if (t == "custom" && j.contains("aruco_bc_markers")) {
+			if (j.value("aruco_bc_mInfoType", 1) != 1) {
+				ofLogError("ofxArucoBoard") << "this marker map is in pixels (ArUco 1.x): load it with loadLegacyAruco(path, markerLength, dictionary)";
+				return false;
+			}
+			std::vector<int> ids;
+			std::vector<std::array<glm::vec3, 4>> corners;
+			readMarkerMap(j, ids, corners);
+			*this = makeCustom(dict, ids, corners);
 		} else if (t == "custom") {
 			std::vector<int> ids;
 			std::vector<std::array<glm::vec3, 4>> corners;
@@ -173,9 +211,13 @@ bool ofxArucoBoard::fromJson(const ofJson & j) {
 		name = j.value("name", getTypeName());
 		return isValid();
 	} catch (const std::exception & e) {
-		ofLogError("ofxArucoBoard") << "invalid board json: " << e.what();
+		ofLogError("ofxArucoBoard") << "invalid board file: " << e.what();
 		return false;
 	}
+}
+
+static bool isJsonPath(const std::string & path) {
+	return ofToLower(ofFilePath::getFileExt(path)) == "json";
 }
 
 bool ofxArucoBoard::load(const std::string & path) {
@@ -184,52 +226,81 @@ bool ofxArucoBoard::load(const std::string & path) {
 		ofLogError("ofxArucoBoard") << "file not found: " << fullPath;
 		return false;
 	}
-	return fromJson(ofLoadJson(fullPath));
+	const ofJson j = isJsonPath(fullPath) ? ofLoadJson(fullPath) : ofxArucoUtils::loadYaml(fullPath);
+	if (j.is_null()) {
+		ofLogError("ofxArucoBoard") << "could not read " << fullPath;
+		return false;
+	}
+	if (!j.contains("type") && j.value("aruco_bc_mInfoType", 1) == 0) {
+		ofLogError("ofxArucoBoard") << fullPath << " is an ArUco 1.x board (in pixels): use loadLegacyAruco(path, markerLength, dictionary)";
+		return false;
+	}
+	if (!fromJson(j)) {
+		ofLogError("ofxArucoBoard") << "could not load " << fullPath;
+		return false;
+	}
+	return true;
+}
+
+ofJson ofxArucoBoard::toYamlJson() const {
+	ofJson j = toJson();
+	if (type == Type::Custom) {
+		// custom boards are written as an ArUco marker map (meters), readable by the ArUco library
+		j.erase("markers");
+		j["aruco_bc_dict"] = ofxArucoUtils::dictionaryToName(dictionary);
+		j["aruco_bc_nmarkers"] = (int)customIds.size();
+		j["aruco_bc_mInfoType"] = 1;
+		ofJson markers = ofJson::array();
+		for (size_t i = 0; i < customIds.size(); i++) {
+			ofJson corners = ofJson::array();
+			for (auto & c : customCorners[i]) corners.push_back({ um(c.x), um(c.y), um(c.z) });
+			markers.push_back({ { "id", customIds[i] }, { "corners", corners } });
+		}
+		j["aruco_bc_markers"] = markers;
+	}
+	return j;
 }
 
 bool ofxArucoBoard::save(const std::string & path) const {
-	return ofxArucoUtils::saveJson(path, toJson());
+	if (isJsonPath(path)) return ofxArucoUtils::saveJson(path, toJson());
+	return ofxArucoUtils::saveYaml(path, toYamlJson(),
+		{ "ofxAruco board (" + getTypeName() + "). Lengths in meters.",
+			"Measure the printed board and fix the lengths if your printer scaled it.",
+			"Load with board.load(\"" + ofFilePath::getFileName(path) + "\") or aruco.loadBoard(...)" });
 }
 
 bool ofxArucoBoard::loadLegacyAruco(const std::string & path, float markerLen, int dict) {
 	const std::string fullPath = ofToDataPath(path, true);
-	try {
-		cv::FileStorage fs(fullPath, cv::FileStorage::READ);
-		if (!fs.isOpened()) {
-			ofLogError("ofxArucoBoard") << "could not open " << fullPath;
-			return false;
-		}
-		std::vector<int> ids;
-		std::vector<std::array<glm::vec3, 4>> corners;
-		float sidePixels = 0;
-		for (auto it = fs["aruco_bc_markers"].begin(); it != fs["aruco_bc_markers"].end(); ++it) {
-			cv::FileNode m = *it;
-			ids.push_back((int)m["id"]);
-			std::array<glm::vec3, 4> c;
-			int k = 0;
-			for (auto cit = m["corners"].begin(); cit != m["corners"].end() && k < 4; ++cit, ++k) {
-				std::vector<float> p;
-				(*cit) >> p;
-				c[k] = { p[0], p[1], p.size() > 2 ? p[2] : 0.f };
-			}
-			sidePixels = glm::distance(c[0], c[1]);
-			corners.push_back(c);
-		}
-		if (ids.empty() || sidePixels <= 0) {
-			ofLogError("ofxArucoBoard") << "no markers in " << fullPath;
-			return false;
-		}
-		const float scale = markerLen / sidePixels;
-		for (auto & c : corners) {
-			for (auto & p : c) p *= scale;
-		}
-		*this = makeCustom(dict, ids, corners);
-		name = ofFilePath::getBaseName(fullPath);
-		return isValid();
-	} catch (const cv::Exception & e) {
-		ofLogError("ofxArucoBoard") << "error reading " << fullPath << ": " << e.what();
+	const ofJson j = isJsonPath(fullPath) ? ofLoadJson(fullPath) : ofxArucoUtils::loadYaml(fullPath);
+	if (j.is_null()) {
+		ofLogError("ofxArucoBoard") << "could not open " << fullPath;
 		return false;
 	}
+	// not an ArUco 1.x file: an ofxAruco board, or a marker map in meters. It has
+	// its own sizes and dictionary, so load it as it is.
+	if (j.contains("type") || j.value("aruco_bc_mInfoType", 0) == 1) {
+		ofLogNotice("ofxArucoBoard") << ofFilePath::getFileName(fullPath)
+									 << " is not an ArUco 1.x board: loading it with its own sizes and dictionary";
+		return load(path);
+	}
+	std::vector<int> ids;
+	std::vector<std::array<glm::vec3, 4>> corners;
+	if (!readMarkerMap(j, ids, corners)) {
+		ofLogError("ofxArucoBoard") << "no markers in " << fullPath;
+		return false;
+	}
+	const float sidePixels = glm::distance(corners.back()[0], corners.back()[1]);
+	if (sidePixels <= 0) {
+		ofLogError("ofxArucoBoard") << "invalid marker corners in " << fullPath;
+		return false;
+	}
+	const float scale = markerLen / sidePixels;
+	for (auto & c : corners) {
+		for (auto & p : c) p *= scale;
+	}
+	*this = makeCustom(dict, ids, corners);
+	name = ofFilePath::getBaseName(fullPath);
+	return isValid();
 }
 
 glm::vec2 ofxArucoBoard::getSize() const {

@@ -4,7 +4,7 @@
 //
 // Ways to fill it:
 //   intrinsics.load("intrinsics.yml");   // OpenCV calibration file (.yml/.yaml/.xml),
-//                                        // ofxAruco .json, or legacy ArUco .int
+//                                        // ofxCv calibration.yml, ofxAruco .json, or legacy ArUco .int
 //   intrinsics.setup(fx, fy, cx, cy, width, height, { k1, k2, p1, p2, k3, k4, k5, k6 });
 //
 // Azure Kinect: k4a_calibration_t::color_camera_calibration.intrinsics.parameters.param
@@ -28,6 +28,11 @@ public:
 	bool load(const std::string & path);
 	// Saves .json, or .yml/.xml through OpenCV FileStorage.
 	bool save(const std::string & path) const;
+	// Loads the calibration for this resolution from a folder written by the camera
+	// calibration tools / ofxArucoCalibrationPlan: files named <anything>_<width>x<height>.yml
+	// (e.g. Logitech_BRIO_1920x1080.yml) or <width>x<height>.yml. If there is no file
+	// for that resolution, the largest one with the same aspect ratio is scaled.
+	bool loadForResolution(const std::string & folder, int width, int height);
 
 	ofJson toJson() const;
 	bool fromJson(const ofJson & json);

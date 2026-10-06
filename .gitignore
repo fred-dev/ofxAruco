@@ -69,8 +69,10 @@ icon.rc
 **/bin/data/multicam_calibration.json
 **/bin/data/cameras.json
 **/bin/data/webcam*_intrinsics.yml
+**/bin/data/calibrations/
+**/bin/data/lens_settings.json
 example-multi-camera/bin/data/*
-!example-multi-camera/bin/data/board.json
+!example-multi-camera/bin/data/board.yml
 example-print-boards/bin/data/*
 !example-print-boards/bin/data/.gitkeep
 tests/*/bin/data/*

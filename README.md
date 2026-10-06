@@ -9,7 +9,7 @@ Built on OpenCV's own `objdetect` module (OpenCV >= 4.7, the one inside
 
 * Detect markers and boards with one call, on a worker thread (never blocks your app)
 * 3D poses in meters, drawing helpers that line up with the camera image
-* Grid boards, **ChArUco** boards (most accurate) and custom 3D boards, saved as JSON
+* Grid boards, **ChArUco** boards (most accurate) and custom 3D boards, saved as YAML (OpenCV FileStorage, like calibration files; JSON also works)
 * Camera intrinsics from OpenCV `.yml`, JSON, or plain `fx fy cx cy` + distortion (e.g. Azure Kinect factory calibration)
 * Calibrate several cameras together, with bundle adjustment, saved as JSON (`cameraToWorld` per camera)
 * All settings are `ofParameter`s: drop them in an `ofxPanel`, save/load JSON
@@ -86,27 +86,36 @@ Boards
 ```cpp
 // ChArUco: chessboard + markers. Best for calibration (sub-pixel corners, works partially occluded)
 auto board = ofxArucoBoard::makeCharuco(7, 5, 0.055f, 0.041f, cv::aruco::DICT_5X5_100);
-board.save("board.json");                  // or aruco.loadBoard("board.json")
+board.save("board.yml");                   // or aruco.loadBoard("board.yml")
 int index = aruco.addBoard(board);
 
 const auto & bp = aruco.getBoardPose(index);
 if (bp.found) { bp.pose; bp.numPoints; bp.reprojectionError; }
 ```
 
-`board.json`:
+`board.yml`:
 
-```json
-{ "type": "charuco", "dictionary": "DICT_5X5_100", "squaresX": 7, "squaresY": 5,
-  "squareLength": 0.055, "markerLength": 0.041 }
+```yaml
+%YAML:1.0
+---
+type: "charuco"
+dictionary: "DICT_5X5_100"
+squaresX: 7
+squaresY: 5
+squareLength: 0.055
+markerLength: 0.041
 ```
 
+The format follows the extension: `.yml` / `.yaml` (default) or `.json`, with the same keys.
+
 Also `"type": "grid"` (`markersX`, `markersY`, `markerLength`, `markerSeparation`)
-and `"type": "custom"` (a list of markers with their 4 corners in 3D). Old ArUco 1.x
+and `"type": "custom"` (markers with their 4 corners in 3D, written as an ArUco marker map:
+`aruco_bc_markers`, in meters, so ArUco tools can read it; `load()` also reads ArUco marker maps in meters). Old ArUco 1.x
 `boardConfiguration.yml` files load with `board.loadLegacyAruco(path, markerLength, dictionary)`.
 
 Print boards with **example-print-boards**: it writes a PNG that prints at the
-right physical size at 100% scale, plus the matching JSON. Always measure the
-printed board and fix the lengths in the JSON if the printer scaled it.
+right physical size at 100% scale, plus the matching YAML. Always measure the
+printed board and fix the lengths in the YAML if the printer scaled it.
 It has presets on a slider: A4 ChArUco boards 4x3, 7x5 and 10x8, A4 sheets of
 cut-out marker cards with the same counts and marker sizes (ids 20 and up), an
 A1 single marker, and "user" for your own settings.
@@ -129,6 +138,29 @@ aruco.setIntrinsics(intrinsics);
 
 If the image size differs from the calibration size (same aspect ratio), the
 intrinsics are scaled automatically.
+
+
+Calibrating a camera (intrinsics)
+---------------------------------
+
+`ofxArucoCalibrator` calibrates one camera with a ChArUco board: feed it frames, it keeps
+views that are still, well detected and different from the previous ones (it tells the user
+what to do next), then solves focal length, principal point and distortion.
+
+```cpp
+calibrator.setup(board);                       // a ChArUco board
+calibrator.start({ 1920, 1080 });
+// update(): if (grabber.isFrameNew()) calibrator.update(grabber.getPixels());
+// draw():   grabber.draw(r); calibrator.draw(r); ofDrawBitmapString(calibrator.getStatus(), 10, 20);
+auto result = calibrator.calibrate();          // result.rms: under 0.5 px is good
+ofxArucoCalibrator::save("calibrations/mycam/1920x1080.yml", result);
+```
+
+`ofxArucoCalibrationPlan` plans all the modes of a camera: a full calibration for the largest
+mode of each aspect ratio, a quick verification of the scaled result for the others. Load the
+result for the resolution you run at with
+`intrinsics.loadForResolution("calibrations/mycam", width, height)`.
+`example-calibrate-camera` is a complete tool built on these: it lists a USB / built in camera's native modes (macOS, Windows) and calibrates them all, saving `calibrations/<camera>/<camera>_<width>x<height>.yml`. `example-calibrate-blackmagic` does the same for cameras on a Blackmagic capture device.
 
 
 Multi camera calibration
@@ -221,7 +253,9 @@ Examples
 | folder | what | needs |
 |---|---|---|
 | `example` | markers + board on the included video, 3D cubes on the markers. `v` switches to a webcam | nothing |
-| `example-print-boards` | make printable ChArUco / grid boards / markers / cut-out cards + their JSON, with presets, self-checked by detection | nothing |
+| `example-print-boards` | make printable ChArUco / grid boards / markers / cut-out cards + their YAML, with presets, self-checked by detection | nothing |
+| `example-calibrate-camera` | calibrate every native resolution of a USB / built in camera with a ChArUco board (macOS, Windows) | a camera + printed ChArUco board |
+| `example-calibrate-blackmagic` | the same through a Blackmagic capture device: calibrates each resolution the camera outputs, asks for camera body, sensor setting, lens and lens settings, which name the files | ofxBlackmagic, Desktop Video, camera + board |
 | `example-multi-camera` | calibrate several cameras together, 3D view, save JSON. Runs with **3 simulated cameras** (with ground truth), `m` switches to webcams (`bin/data/cameras.json`) | nothing / 2+ webcams |
 | `tests/ofxArucoTests` | automated self test: renders boards with known poses and checks detection, poses, calibration, threading, files, the video | nothing |
 
@@ -233,7 +267,7 @@ Upgrading from the old ofxAruco (ArUco 1.x)
 -------------------------------------------
 
 * `setup(calibrationFile, w, h, boardConfig, markerSize)` becomes:
-  `setup(dictionary)`, `loadIntrinsics(file)`, `markerLength = ...`, `loadBoard(json)` (or `loadLegacyAruco` for old `.yml` boards)
+  `setup(dictionary)`, `loadIntrinsics(file)`, `markerLength = ...`, `loadBoard("board.yml")` (or `loadLegacyAruco` for old ArUco 1.x `.yml` boards)
 * `detectMarkers(pixels)` / `detectBoards(pixels)` become `detect(pixels)` (markers and boards in one pass)
 * `getMarkers()`, `getNumMarkers()`, `begin(i)`, `beginBoard(i)`, `end()`, `getProjectionMatrix()`, `getModelViewMatrix(i)` still exist
 * `aruco::Marker` becomes `ofxArucoMarker` (`id`, `corners`, `pose`); `getBoardProbability()` becomes `getBoardPose(i).found` / `.numPoints`

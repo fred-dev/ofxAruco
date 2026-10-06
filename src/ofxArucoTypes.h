@@ -108,6 +108,16 @@ namespace ofxArucoUtils {
 	// Like ofSavePrettyJson, but arrays of numbers stay on one line (readable matrices).
 	bool saveJson(const std::string & path, const ofJson & json);
 
+	// YAML in the OpenCV FileStorage dialect (%YAML:1.0, the format of OpenCV
+	// calibration files and ArUco board files), going through ofJson so the same
+	// code reads and writes both formats. Booleans are written as 0 / 1.
+	// commentLines are written as "# ..." under the header.
+	bool saveYaml(const std::string & path, const ofJson & json, const std::vector<std::string> & commentLines = {});
+	// Returns null if the file can't be read.
+	ofJson loadYaml(const std::string & path);
+	// Reads a bool written as true/false or 0/1 (YAML files use 0/1).
+	bool getBool(const ofJson & json, const std::string & key, bool defaultValue);
+
 	// Saves a PNG that remembers its DPI, so printing it at "100% / actual size"
 	// gives the right physical size (plain ofImage::save() PNGs print at 72 dpi).
 	bool savePngWithDpi(const ofPixels & pixels, const std::string & path, float dpi);

@@ -1,0 +1,14 @@
+%YAML:1.0
+---
+# ofxAruco board (charuco). Lengths in meters.
+# Measure the printed board and fix the lengths if your printer scaled it.
+# Load with board.load("board.yml") or aruco.loadBoard(...)
+dictionary: "DICT_5X5_100"
+firstMarkerId: 0
+legacyPattern: 0
+markerLength: 0.041
+name: "charuco_7x5_55mm_41mm_DICT_5X5_100_id0"
+squareLength: 0.055
+squaresX: 7
+squaresY: 5
+type: "charuco"

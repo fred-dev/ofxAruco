@@ -15,9 +15,17 @@
 // printed board, x to the right, y DOWN the page, z INTO the board (away from
 // the camera looking at it). This is a right-handed frame.
 //
-// Boards can be saved/loaded as JSON, e.g. bin/data/board.json:
-//   { "type": "charuco", "dictionary": "DICT_5X5_100", "squaresX": 7, "squaresY": 5,
-//     "squareLength": 0.04, "markerLength": 0.03 }
+// Boards are saved/loaded as YAML (OpenCV FileStorage, like calibration files),
+// e.g. bin/data/board.yml:
+//   %YAML:1.0
+//   ---
+//   type: "charuco"
+//   dictionary: "DICT_5X5_100"
+//   squaresX: 7
+//   squaresY: 5
+//   squareLength: 0.04
+//   markerLength: 0.03
+// .json files with the same keys work too.
 
 #include "ofMain.h"
 #include <opencv2/objdetect/aruco_board.hpp>
@@ -34,20 +42,29 @@ public:
 	static ofxArucoBoard makeCustom(int dictionary, const std::vector<int> & ids,
 		const std::vector<std::array<glm::vec3, 4>> & corners);
 
-	// Loads a board .json (see header comment). Relative paths use ofToDataPath().
+	// Loads / saves a board file. The format follows the extension: .yml / .yaml
+	// (OpenCV FileStorage YAML, the default) or .json. Relative paths use ofToDataPath().
+	// load() also reads ArUco marker maps in meters ("aruco_bc_*" keys).
 	bool load(const std::string & path);
 	bool save(const std::string & path) const;
 	// Loads an ArUco 1.x "boardConfiguration.yml" (corners in pixels). The board is
-	// scaled so that one marker side measures markerLength.
+	// scaled so that one marker side measures markerLength. Given an ofxAruco board
+	// file instead, it loads it with its own sizes and dictionary (same as load()).
 	bool loadLegacyAruco(const std::string & path, float markerLength, int dictionary);
 
 	ofJson toJson() const;
+	// toJson(), but custom boards are written as an ArUco marker map (what save() writes to .yml)
+	ofJson toYamlJson() const;
 	bool fromJson(const ofJson & json);
 
 	bool isValid() const { return type != Type::None; }
 	Type getType() const { return type; }
 	std::string getTypeName() const;
 	int getDictionary() const { return dictionary; }
+	// grid / charuco only (0 for custom boards)
+	float getMarkerLength() const { return markerLength; }
+	float getSquareLength() const { return squareLength; }
+	int getFirstMarkerId() const { return firstMarkerId; }
 	const std::string & getName() const { return name; }
 	void setName(const std::string & n) { name = n; }
 

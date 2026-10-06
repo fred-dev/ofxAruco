@@ -1,6 +1,8 @@
 #include "ofxArucoTypes.h"
 #include <opencv2/calib3d.hpp>
+#include <opencv2/core/persistence.hpp>
 #include <regex>
+#include <cstdio>
 
 namespace {
 	struct DictEntry { const char * name; int id; };
@@ -129,6 +131,115 @@ bool saveJson(const std::string & path, const ofJson & json) {
 	}
 	out += pretty.substr(last);
 	return ofBufferToFile(ofToDataPath(path, true), ofBuffer(out.data(), out.size()));
+}
+
+namespace {
+	std::string yamlScalar(const ofJson & v) {
+		if (v.is_string()) {
+			std::string s;
+			for (char c : v.get<std::string>()) {
+				if (c == '"' || c == '\\') s += '\\';
+				s += c;
+			}
+			return "\"" + s + "\"";
+		}
+		if (v.is_boolean()) return v.get<bool>() ? "1" : "0";
+		if (v.is_number_integer()) return std::to_string(v.get<int64_t>());
+		if (v.is_number_float()) {
+			char buf[40];
+			std::snprintf(buf, sizeof(buf), "%.9g", v.get<double>());
+			std::string s = buf;
+			// keep it a real number for OpenCV: 1 -> 1.
+			if (s.find_first_of(".eEni") == std::string::npos) s += ".";
+			return s;
+		}
+		return "\"\"";
+	}
+
+	std::string yamlFlow(const ofJson & v) {
+		if (v.is_array()) {
+			std::string s = "[";
+			for (size_t i = 0; i < v.size(); i++) s += (i ? ", " : "") + yamlFlow(v[i]);
+			return s + "]";
+		}
+		if (v.is_object()) {
+			std::string s = "{ ";
+			bool first = true;
+			for (auto it = v.begin(); it != v.end(); ++it) {
+				s += (first ? "" : ", ") + it.key() + ": " + yamlFlow(it.value());
+				first = false;
+			}
+			return s + " }";
+		}
+		return yamlScalar(v);
+	}
+
+	void yamlBlock(const ofJson & obj, const std::string & indent, std::string & out) {
+		for (auto it = obj.begin(); it != obj.end(); ++it) {
+			const ofJson & v = it.value();
+			bool arrayOfObjects = v.is_array() && !v.empty();
+			if (arrayOfObjects) {
+				for (auto & e : v) arrayOfObjects = arrayOfObjects && e.is_object();
+			}
+			if (v.is_object() && !v.empty()) {
+				out += indent + it.key() + ":\n";
+				yamlBlock(v, indent + "   ", out);
+			} else if (arrayOfObjects) {
+				out += indent + it.key() + ":\n";
+				for (auto & e : v) out += indent + "   - " + yamlFlow(e) + "\n";
+			} else {
+				out += indent + it.key() + ": " + yamlFlow(v) + "\n";
+			}
+		}
+	}
+
+	ofJson fromFileNode(const cv::FileNode & n) {
+		if (n.isMap()) {
+			ofJson j = ofJson::object();
+			for (auto it = n.begin(); it != n.end(); ++it) {
+				const cv::FileNode c = *it;
+				j[c.name()] = fromFileNode(c);
+			}
+			return j;
+		}
+		if (n.isSeq()) {
+			ofJson j = ofJson::array();
+			for (auto it = n.begin(); it != n.end(); ++it) j.push_back(fromFileNode(*it));
+			return j;
+		}
+		if (n.isInt()) return (int)n;
+		if (n.isReal()) return (double)n;
+		if (n.isString()) return (std::string)n;
+		return nullptr;
+	}
+}
+
+bool saveYaml(const std::string & path, const ofJson & json, const std::vector<std::string> & commentLines) {
+	std::string out = "%YAML:1.0\n---\n";
+	for (auto & c : commentLines) out += "# " + c + "\n";
+	yamlBlock(json, "", out);
+	return ofBufferToFile(ofToDataPath(path, true), ofBuffer(out.data(), out.size()));
+}
+
+ofJson loadYaml(const std::string & path) {
+	const std::string fullPath = ofToDataPath(path, true);
+	try {
+		cv::FileStorage fs(fullPath, cv::FileStorage::READ);
+		if (!fs.isOpened()) return nullptr;
+		return fromFileNode(fs.root());
+	} catch (const cv::Exception & e) {
+		ofLogError("ofxAruco") << "error reading " << fullPath << ": " << e.what();
+		return nullptr;
+	}
+}
+
+bool getBool(const ofJson & json, const std::string & key, bool defaultValue) {
+	if (!json.is_object() || !json.contains(key)) return defaultValue;
+	const ofJson & v = json[key];
+	if (v.is_boolean()) return v.get<bool>();
+	if (v.is_number()) return v.get<double>() != 0;
+	if (v.is_string()) return v.get<std::string>() == "true" || v.get<std::string>() == "1";
+	return defaultValue;
 }
 
 bool savePngWithDpi(const ofPixels & pixels, const std::string & path, float dpi) {

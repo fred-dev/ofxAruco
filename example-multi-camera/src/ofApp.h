@@ -6,8 +6,8 @@
 // configured in bin/data/cameras.json).
 //
 // Workflow:
-//   1. print bin/data/board.json with example-print-boards (default: ChArUco 7x5,
-//      55 mm squares, A3), glue it on something flat. Measure it, fix board.json.
+//   1. print bin/data/board.yml with example-print-boards (default: ChArUco 7x5,
+//      55 mm squares, A3), glue it on something flat. Measure it, fix board.yml.
 //   2. show the board to 2+ cameras at once and HOLD IT STILL: a sample is taken
 //      automatically (green bar). Move it, tilt it, repeat ~15-30 times all over
 //      the shared volume. 'space' takes a sample by hand.

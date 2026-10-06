@@ -69,6 +69,10 @@ bool ofxArucoIntrinsics::load(const std::string & path) {
 		if (!fs["image_width"].empty()) {
 			size.width = (int)fs["image_width"];
 			size.height = (int)fs["image_height"];
+		} else if (!fs["imageSize_width"].empty()) {
+			// ofxCv::Calibration::save()
+			size.width = (int)fs["imageSize_width"];
+			size.height = (int)fs["imageSize_height"];
 		} else if (!fs["imageSize"].empty()) {
 			std::vector<int> s;
 			fs["imageSize"] >> s;
@@ -136,6 +140,55 @@ bool ofxArucoIntrinsics::fromJson(const ofJson & j) {
 		ofLogError("ofxArucoIntrinsics") << "invalid json: " << e.what();
 		return false;
 	}
+}
+
+// "Logitech_BRIO_1920x1080" or "1920x1080" -> 1920, 1080
+static bool resolutionFromFileName(const std::string & baseName, int & w, int & h) {
+	const size_t underscore = baseName.find_last_of('_');
+	const std::string res = underscore == std::string::npos ? baseName : baseName.substr(underscore + 1);
+	const auto parts = ofSplitString(res, "x");
+	if (parts.size() != 2) return false;
+	w = ofToInt(parts[0]);
+	h = ofToInt(parts[1]);
+	return w > 0 && h > 0;
+}
+
+bool ofxArucoIntrinsics::loadForResolution(const std::string & folder, int width, int height) {
+	const std::string dirPath = ofToDataPath(folder, true);
+	ofDirectory dir(dirPath);
+	if (!dir.exists() || width <= 0 || height <= 0) {
+		ofLogError("ofxArucoIntrinsics") << "loadForResolution: no folder " << dirPath;
+		return false;
+	}
+	dir.allowExt("yml");
+	dir.listDir();
+	// the exact resolution, else the largest calibration with the same aspect ratio
+	const float ratio = float(width) / float(height);
+	std::string exact, best;
+	int bestArea = 0;
+	for (size_t i = 0; i < dir.size(); i++) {
+		int w = 0, h = 0;
+		if (!resolutionFromFileName(dir.getFile(i).getBaseName(), w, h)) continue;
+		if (w == width && h == height) {
+			exact = dir.getPath(i);
+			break;
+		}
+		if (std::abs(float(w) / float(h) - ratio) > 0.01f * ratio) continue;
+		if (w * h > bestArea) {
+			bestArea = w * h;
+			best = dir.getPath(i);
+		}
+	}
+	if (!exact.empty()) return load(exact);
+	if (best.empty()) {
+		ofLogError("ofxArucoIntrinsics") << "no calibration for " << width << "x" << height << " (or the same aspect ratio) in " << dirPath;
+		return false;
+	}
+	ofxArucoIntrinsics found;
+	if (!found.load(best)) return false;
+	*this = found.getScaled(width, height);
+	ofLogNotice("ofxArucoIntrinsics") << "no calibration for " << width << "x" << height << ", scaled " << ofFilePath::getFileName(best);
+	return true;
 }
 
 ofxArucoIntrinsics ofxArucoIntrinsics::getScaled(int width, int height) const {

@@ -374,14 +374,29 @@ void ofApp::runSyntheticTests() {
 	// ---------------------------------------------------------------- 4. files
 	report << "\n4. Files\n";
 	{
-		board.save("test_board.json");
+		board.save("test_board.yml");
 		ofxArucoBoard b2;
+		check(b2.load("test_board.yml") && b2.getType() == ofxArucoBoard::Type::Charuco && b2.getNumMarkers() == board.getNumMarkers()
+				&& b2.getSize() == board.getSize(),
+			"board YAML round trip");
+		board.save("test_board.json");
 		check(b2.load("test_board.json") && b2.getType() == ofxArucoBoard::Type::Charuco && b2.getNumMarkers() == board.getNumMarkers()
 				&& b2.getSize() == board.getSize(),
 			"board JSON round trip");
 		auto grid = ofxArucoBoard::makeGrid(4, 3, 0.05f, 0.01f, cv::aruco::DICT_4X4_50, 10);
-		grid.save("test_grid.json");
-		check(b2.load("test_grid.json") && b2.getType() == ofxArucoBoard::Type::Grid && b2.getCvBoard().getIds().front() == 10, "grid board JSON round trip");
+		grid.save("test_grid.yml");
+		check(b2.load("test_grid.yml") && b2.getType() == ofxArucoBoard::Type::Grid && b2.getCvBoard().getIds().front() == 10, "grid board YAML round trip");
+		auto custom = ofxArucoBoard::makeCustom(cv::aruco::DICT_4X4_50, { 3, 7 },
+			{ { { { 0, 0, 0 }, { 0.05f, 0, 0 }, { 0.05f, 0.05f, 0 }, { 0, 0.05f, 0 } } },
+				{ { { 0.1f, 0, 0 }, { 0.15f, 0, 0 }, { 0.15f, 0.05f, 0 }, { 0.1f, 0.05f, 0 } } } });
+		custom.save("test_custom.yml");
+		check(b2.load("test_custom.yml") && b2.getType() == ofxArucoBoard::Type::Custom && b2.getNumMarkers() == 2
+				&& b2.getCvBoard().getIds().back() == 7,
+			"custom board YAML (ArUco marker map) round trip");
+		ofxArucoBoard viaLegacy;
+		check(viaLegacy.loadLegacyAruco("test_board.yml", 0.035f, cv::aruco::DICT_ARUCO_ORIGINAL) && viaLegacy.getType() == ofxArucoBoard::Type::Charuco
+				&& viaLegacy.getDictionary() == board.getDictionary(),
+			"loadLegacyAruco() on an ofxAruco board file loads it as it is");
 
 		cam.save("test_intrinsics.json");
 		cam.save("test_intrinsics.yml");

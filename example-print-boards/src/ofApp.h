@@ -7,7 +7,7 @@
 // selected switches to "user" and keeps your changes. Press "save" (or 's').
 // It writes to bin/data/:
 //   <name>.png   the image at the chosen DPI: print it at 100% scale (no "fit to page")
-//   <name>.json  the board definition for ofxAruco (load it with aruco.loadBoard(...))
+//   <name>.yml   the board definition for ofxAruco (load it with aruco.loadBoard(...))
 //
 // Presets (the dictionary is not part of a preset, it stays as you set it):
 //   A4 ChArUco 4x3   60 mm squares, 45 mm markers, ids 0-5
@@ -19,10 +19,12 @@
 //   A1 single marker 500 mm, id 0
 //   user             your own settings (remembered in settings.json)
 // Cards are a grid with wide gaps and grey cut lines in the middle of the
-// gaps, so every cut-out marker keeps a white border around it.
+// gaps, so every cut-out marker keeps a white border around it. Their .yml is
+// a grid board: use it for the ids and the marker length, not as a board
+// (once cut out, the markers are no longer where the board says).
 //
 // After printing, MEASURE the printed square/marker with a ruler and fix the
-// length in the .json if your printer scaled it: poses are only as accurate
+// length in the .yml if your printer scaled it: poses are only as accurate
 // as these numbers.
 //
 // The generated image is detected again here, as a self-check, and drawn on
@@ -30,7 +32,7 @@
 //
 // example-multi-camera expects a ChArUco 7x5 board with 55 mm squares and
 // 41 mm markers (A3). If you print one of the A4 boards instead, copy its
-// saved .json over example-multi-camera/bin/data/board.json.
+// saved .yml over example-multi-camera/bin/data/board.yml.
 // For calibrating cameras together: as big as you can print it, glued on
 // something flat and rigid (foam board, glass, aluminium).
 
