@@ -1,4 +1,5 @@
 #include "ofApp.h"
+#include <cairo/cairo-pdf.h>
 
 namespace {
 struct Paper {
@@ -80,7 +81,7 @@ void ofApp::setup() {
 	dictionaryName.setSerializable(false);
 	gui.setDefaultWidth(330);
 	gui.setup(params, "settings.json", 10, 10);
-	gui.add(saveButton.setup("save png + yml  (s)"));
+	gui.add(saveButton.setup("save pdf + yml  (s)"));
 
 	listeners.push(params.parameterChangedE().newListener([this](ofAbstractParameter & p) {
 		const std::string & n = p.getName();
@@ -147,14 +148,30 @@ void ofApp::saveSettings() {
 //--------------------------------------------------------------
 void ofApp::rebuild() {
 	dirty = false;
+	ready = false;
 	typeName.set(typeNames[type]);
 	paperName.set(papers[paper].name);
 	dictionaryName.set(ofxArucoUtils::dictionaryToName(dictionary));
 
+	// keep the marker ids inside the dictionary (ids 0 .. size - 1)
+	const int numMarkers = type == Charuco ? (countX * countY) / 2 : (type == SingleMarker ? 1 : countX * countY);
+	const int dictSize = ofxArucoUtils::getDictionarySize(dictionary);
+	const int maxFirstId = dictSize - numMarkers;
+	if (maxFirstId < 0) {
+		status = ofToString(numMarkers) + " markers but " + dictionaryName.get() + " has only " + ofToString(dictSize)
+			+ ": use fewer markers or a bigger dictionary";
+		return;
+	}
+	firstId.setMax(maxFirstId);
+	if (firstId > maxFirstId) {
+		applying = true; // a correction, not a user edit: keeps the preset
+		firstId = maxFirstId;
+		applying = false;
+	}
+
 	const float sq = squareMm / 1000.f, mk = markerMm / 1000.f, sep = separationMm / 1000.f;
 	if (type == Charuco && mk >= sq) {
 		status = "the marker must be smaller than the square";
-		pixels.clear();
 		return;
 	}
 	if (type == Charuco) {
@@ -167,23 +184,36 @@ void ofApp::rebuild() {
 	board.setName(getFileName());
 	if (!board.isValid()) {
 		status = "invalid board (too many markers for this dictionary?)";
-		pixels.clear();
 		return;
 	}
-	board.getImageForPrint(pixels, dpi, marginMm / 1000.f);
-	if (type == Cards) drawCutLines();
-	// allocate() (not loadData()) every time: when the size changes loadData()
-	// reallocates without the gray -> RGB swizzle and the preview turns red
-	preview.allocate(pixels);
 
-	// self-check: detect the generated image
-	checker.dictionary = dictionary;
-	checker.detect(pixels);
-
+	// the sheet: the paper, turned like the board, grown if the board (+ margin) is bigger
 	const glm::vec2 size = board.getSize() * 1000.f; // mm
-	const float w = size.x + 2 * marginMm, h = size.y + 2 * marginMm;
+	boardW = size.x;
+	boardH = size.y;
+	const float w = boardW + 2 * marginMm, h = boardH + 2 * marginMm;
+	sheetW = papers[paper].w;
+	sheetH = papers[paper].h;
+	if ((w > h) != (sheetW > sheetH)) std::swap(sheetW, sheetH);
+	pageW = std::max(sheetW, w);
+	pageH = std::max(sheetH, h);
+	boardX = (pageW - boardW) / 2;
+	boardY = (pageH - boardH) / 2;
+
+	// draw the sheet exactly as the pdf will be, then detect on it (self-check) and show it
+	if (!renderPage()) {
+		status = "could not draw the board";
+		return;
+	}
+	preview.allocate(pagePixels);
+	checker.dictionary = dictionary;
+	checker.detect(pagePixels);
+	ready = true;
+
 	auto fits = [&](const Paper & p) { return (w <= p.w && h <= p.h) || (w <= p.h && h <= p.w); };
 	fitsPaper = fits(papers[paper]);
+	// most printers leave 3 - 5 mm unprinted at the edges
+	const float edge = std::min((papers[paper].w - std::min(w, h)) / 2, (papers[paper].h - std::max(w, h)) / 2);
 	std::string fitsOn;
 	for (auto & p : papers) {
 		if (fits(p)) fitsOn += std::string(p.name) + " ";
@@ -193,42 +223,153 @@ void ofApp::rebuild() {
 	ss << presetName.get() << ": " << typeName.get() << ", " << board.getNumMarkers() << " markers (ids " << firstId << " - "
 	   << firstId + board.getNumMarkers() - 1 << ")\n"
 	   << "printed size: " << ofToString(size.x / 10.f, 1) << " x " << ofToString(size.y / 10.f, 1) << " cm (+ " << marginMm
-	   << " mm margin)\n"
-	   << "image: " << pixels.getWidth() << " x " << pixels.getHeight() << " px at " << dpi << " dpi\n"
-	   << "paper: " << papers[paper].name << (fitsPaper ? " OK" : " - DOES NOT FIT") << "   (fits on: " << fitsOn << ")\n"
-	   << "self-check: " << checker.getNumMarkers() << " / " << board.getNumMarkers() << " markers detected"
+	   << " mm margin), pdf page " << ofToString(pageW, 1) << " x " << ofToString(pageH, 1) << " mm\n"
+	   << "paper: " << papers[paper].name << " (" << papers[paper].w << " x " << papers[paper].h << " mm)"
+	   << (!fitsPaper ? " - DOES NOT FIT" : edge < 4 ? " - fits, but only " + ofToString(edge, 1) + " mm to the edge (printers need ~4)" : " OK")
+	   << "   (fits on: " << fitsOn << ")\n"
+	   << "self-check on the printed sheet (" << pagePixels.getWidth() << " x " << pagePixels.getHeight() << " px): "
+	   << checker.getNumMarkers() << " / " << board.getNumMarkers() << " markers detected"
 	   << (checker.getNumMarkers() == board.getNumMarkers() ? "  OK" : "  (check the sizes)");
 	status = ss.str();
 }
 
-// Grey cut lines through the middle of the gaps between cards, and around the
-// outside, running edge to edge so they also work as crop marks.
-void ofApp::drawCutLines() {
-	if (!pixels.isAllocated()) return;
-	const float ppm = dpi / 0.0254f; // pixels per meter
-	const glm::vec2 size = board.getSize();
-	const float scale = std::round(size.x * ppm) / size.x; // what getImageForPrint actually used
-	const float margin = std::round(marginMm / 1000.f * ppm);
-	const float mk = markerMm / 1000.f, sep = separationMm / 1000.f;
-	const int lineWidth = std::max(1, int(std::round(0.0002f * ppm))); // 0.2 mm
-	const unsigned char grey = 170;
-
-	const int W = pixels.getWidth(), H = pixels.getHeight(), C = pixels.getNumChannels();
-	unsigned char * data = pixels.getData();
-	auto set = [&](int x, int y) {
-		if (x < 0 || y < 0 || x >= W || y >= H) return;
-		for (int c = 0; c < C; c++) data[(y * W + x) * C + c] = grey;
+// The whole sheet in millimetres (the caller scales cairo to mm), top left = (0, 0):
+// every marker cell, the chessboard squares, the cut lines and a note with a 50 mm
+// bar. Everything is vector shapes, so the pdf prints edges exactly where they are.
+void ofApp::drawSheet(cairo_t * cr) const {
+	const cv::aruco::Board & cvBoard = board.getCvBoard();
+	const auto & ids = cvBoard.getIds();
+	const auto & objPoints = cvBoard.getObjPoints(); // metres, y down, corners clockwise from top left
+	const cv::aruco::Dictionary & dict = cvBoard.getDictionary();
+	auto toPage = [&](const cv::Point3f & p) { return glm::vec2(boardX + p.x * 1000.f, boardY + p.y * 1000.f); };
+	auto quad = [&](const glm::vec2 & a, const glm::vec2 & b, const glm::vec2 & c, const glm::vec2 & d) {
+		cairo_move_to(cr, a.x, a.y);
+		cairo_line_to(cr, b.x, b.y);
+		cairo_line_to(cr, c.x, c.y);
+		cairo_line_to(cr, d.x, d.y);
+		cairo_close_path(cr);
 	};
-	for (int i = 0; i <= countX; i++) {
-		const int x0 = int(std::round(margin + (i * (mk + sep) - sep * 0.5f) * scale - lineWidth * 0.5f));
-		for (int x = x0; x < x0 + lineWidth; x++)
-			for (int y = 0; y < H; y++) set(x, y);
+
+	// all the black in one path, filled once: no hairline seams between touching cells
+	cairo_new_path(cr);
+	std::vector<glm::vec2> centres;
+	for (size_t m = 0; m < ids.size() && m < objPoints.size(); m++) {
+		cv::Mat bits; // one pixel per cell, with the 1 cell black border
+		dict.generateImageMarker(ids[m], dict.markerSize + 2, bits, 1);
+		const int n = bits.rows;
+		glm::vec2 c[4];
+		for (int k = 0; k < 4; k++) c[k] = toPage(objPoints[m][k]);
+		centres.push_back((c[0] + c[1] + c[2] + c[3]) * 0.25f);
+		auto at = [&](float u, float v) { return (1 - u) * (1 - v) * c[0] + u * (1 - v) * c[1] + u * v * c[2] + (1 - u) * v * c[3]; };
+		for (int r = 0; r < n; r++) {
+			for (int x = 0; x < n;) {
+				if (bits.at<uchar>(r, x) > 127) {
+					x++;
+					continue;
+				}
+				int e = x; // a run of black cells on this row
+				while (e < n && bits.at<uchar>(r, e) <= 127) e++;
+				const float u0 = float(x) / n, u1 = float(e) / n, v0 = float(r) / n, v1 = float(r + 1) / n;
+				quad(at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1));
+				x = e;
+			}
+		}
 	}
-	for (int j = 0; j <= countY; j++) {
-		const int y0 = int(std::round(margin + (j * (mk + sep) - sep * 0.5f) * scale - lineWidth * 0.5f));
-		for (int y = y0; y < y0 + lineWidth; y++)
-			for (int x = 0; x < W; x++) set(x, y);
+	if (type == Charuco) {
+		// the squares that hold a marker are white, the others black
+		const float s = squareMm;
+		for (int y = 0; y < countY; y++) {
+			for (int x = 0; x < countX; x++) {
+				const ofRectangle r(boardX + x * s, boardY + y * s, s, s);
+				bool hasMarker = false;
+				for (auto & c : centres) hasMarker |= r.inside(c.x, c.y);
+				if (!hasMarker) cairo_rectangle(cr, r.x, r.y, r.width, r.height);
+			}
+		}
 	}
+	cairo_set_fill_rule(cr, CAIRO_FILL_RULE_WINDING);
+	cairo_set_source_rgb(cr, 0, 0, 0);
+	cairo_fill(cr);
+
+	// cards: grey cut lines through the middle of the gaps and around the outside,
+	// across the board and its margin, so they also work as crop marks
+	if (type == Cards) {
+		const float step = markerMm + separationMm, half = separationMm * 0.5f, line = 0.2f;
+		const float top = std::max(0.f, boardY - marginMm), bottom = std::min(pageH, boardY + boardH + marginMm);
+		const float left = std::max(0.f, boardX - marginMm), right = std::min(pageW, boardX + boardW + marginMm);
+		for (int i = 0; i <= countX; i++) {
+			cairo_rectangle(cr, boardX + i * step - half - line / 2, top, line, bottom - top);
+		}
+		for (int j = 0; j <= countY; j++) {
+			cairo_rectangle(cr, left, boardY + j * step - half - line / 2, right - left, line);
+		}
+		cairo_set_source_rgb(cr, 170 / 255.0, 170 / 255.0, 170 / 255.0);
+		cairo_fill(cr);
+	}
+
+	// a note and a 50 mm bar under the board (and its margin), when there is room:
+	// measure the bar after printing to check the scale
+	const float noteTop = boardY + boardH + marginMm;
+	if (pageH - noteTop >= 12) {
+		const float y = noteTop + (pageH - noteTop) * 0.5f;
+		const float x = std::max(8.f, boardX);
+		cairo_set_source_rgb(cr, 0.3, 0.3, 0.3);
+		cairo_rectangle(cr, x, y - 4, 50, 0.3);
+		cairo_rectangle(cr, x, y - 5.5f, 0.3, 3);
+		cairo_rectangle(cr, x + 50 - 0.3f, y - 5.5f, 0.3, 3);
+		cairo_fill(cr);
+		cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+		cairo_set_font_size(cr, 2.8);
+		std::string note = board.getName() + "   |   " + dictionaryName.get() + ", marker " + ofToString(markerMm.get(), 1) + " mm";
+		if (type == Charuco) note += ", square " + ofToString(squareMm.get(), 1) + " mm";
+		cairo_move_to(cr, x + 53, y - 3);
+		cairo_show_text(cr, "50 mm: print at 100% / actual size, then measure");
+		cairo_move_to(cr, x, y + 2);
+		cairo_show_text(cr, note.c_str());
+	}
+}
+
+// The sheet as pixels (the self-check and the preview), drawn by the same code as the pdf.
+bool ofApp::renderPage() {
+	const float pxPerMm = std::min(dpi / 25.4f, 2400.f / std::max(pageW, pageH)); // enough to detect, fast to check
+	const int W = std::max(1, int(std::round(pageW * pxPerMm))), H = std::max(1, int(std::round(pageH * pxPerMm)));
+	cairo_surface_t * surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, W, H);
+	if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
+		cairo_surface_destroy(surface);
+		return false;
+	}
+	cairo_t * cr = cairo_create(surface);
+	cairo_set_source_rgb(cr, 1, 1, 1);
+	cairo_paint(cr);
+	cairo_scale(cr, W / pageW, H / pageH);
+	drawSheet(cr);
+	cairo_destroy(cr);
+	cairo_surface_flush(surface);
+
+	const unsigned char * data = cairo_image_surface_get_data(surface);
+	const int stride = cairo_image_surface_get_stride(surface);
+	pagePixels.allocate(W, H, OF_PIXELS_GRAY);
+	unsigned char * out = pagePixels.getData();
+	for (int y = 0; y < H; y++) {
+		const unsigned char * row = data + y * stride;
+		for (int x = 0; x < W; x++) out[y * W + x] = row[x * 4 + 1]; // grey: every channel is the same
+	}
+	cairo_surface_destroy(surface);
+	return true;
+}
+
+bool ofApp::savePdf(const std::string & path) const {
+	const double ptPerMm = 72.0 / 25.4;
+	cairo_surface_t * surface = cairo_pdf_surface_create(ofToDataPath(path, true).c_str(), pageW * ptPerMm, pageH * ptPerMm);
+	cairo_t * cr = cairo_create(surface);
+	cairo_scale(cr, ptPerMm, ptPerMm);
+	drawSheet(cr);
+	cairo_show_page(cr);
+	cairo_destroy(cr);
+	cairo_surface_finish(surface);
+	const bool ok = cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS;
+	cairo_surface_destroy(surface);
+	return ok;
 }
 
 std::string ofApp::getFileName() const {
@@ -250,13 +391,16 @@ std::string ofApp::getFileName() const {
 }
 
 void ofApp::save() {
-	if (!pixels.isAllocated()) return;
+	if (!ready) return;
 	const std::string name = getFileName();
-	ofxArucoUtils::savePngWithDpi(pixels, name + ".png", dpi); // prints at the right size at 100%
+	if (!savePdf(name + ".pdf")) {
+		status += "\ncould not write bin/data/" + name + ".pdf";
+		return;
+	}
 	board.save(name + ".yml");
 	saveSettings();
-	ofLogNotice() << "saved " << ofToDataPath(name + ".png", true) << " and " << name << ".yml";
-	status += "\nsaved bin/data/" + name + ".png + .yml";
+	ofLogNotice() << "saved " << ofToDataPath(name + ".pdf", true) << " and " << name << ".yml";
+	status += "\nsaved bin/data/" + name + ".pdf + .yml";
 }
 
 //--------------------------------------------------------------
@@ -265,25 +409,18 @@ void ofApp::update() {
 }
 
 void ofApp::draw() {
-	// the paper (turned to match the board), with the image on it at scale
+	// the sheet as it will print, with the paper's outline
 	ofRectangle area(360, 10, ofGetWidth() - 370, ofGetHeight() - 130);
-	if (preview.isAllocated() && pixels.isAllocated()) {
-		const float bw = board.getSize().x * 1000.f + 2 * marginMm, bh = board.getSize().y * 1000.f + 2 * marginMm;
-		float pw = papers[paper].w, ph = papers[paper].h;
-		if ((bw > bh) != (pw > ph)) std::swap(pw, ph);
-
-		ofRectangle page(0, 0, std::max(pw, bw), std::max(ph, bh)); // grow to show what sticks out
+	if (ready && preview.isAllocated()) {
+		ofRectangle page(0, 0, pageW, pageH);
 		page.scaleTo(area);
-		const float k = page.width / std::max(pw, bw); // screen px per mm
-		ofRectangle sheet(0, 0, pw * k, ph * k);
-		sheet.setFromCenter(page.getCenter(), pw * k, ph * k);
-		ofRectangle image;
-		image.setFromCenter(page.getCenter(), bw * k, bh * k);
+		const float k = page.width / pageW; // screen px per mm
+		ofRectangle sheet;
+		sheet.setFromCenter(page.getCenter(), sheetW * k, sheetH * k);
 
 		ofSetColor(255);
-		ofDrawRectangle(sheet);
-		preview.draw(image);
-		checker.drawMarkers(image); // the self-check detections on top
+		preview.draw(page);
+		checker.drawMarkers(page); // the self-check ran on this image
 		ofNoFill();
 		ofSetColor(fitsPaper ? ofColor(120) : ofColor(255, 60, 60));
 		ofDrawRectangle(sheet);
@@ -292,7 +429,8 @@ void ofApp::draw() {
 		ofDrawBitmapStringHighlight(papers[paper].name, sheet.x + 4, sheet.getBottom() - 6);
 	}
 	ofDrawBitmapStringHighlight(status, 360, ofGetHeight() - 105);
-	ofDrawBitmapStringHighlight("Print at 100% scale, then measure and fix the sizes in the .yml if needed.", 360, ofGetHeight() - 15);
+	ofDrawBitmapStringHighlight("Print the pdf at 100% / actual size (not \"fit\"), then measure the 50 mm bar and the marker.", 360,
+		ofGetHeight() - 15);
 	gui.draw();
 }
 

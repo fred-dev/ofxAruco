@@ -6,7 +6,9 @@
 // ("user") and set everything by hand. Changing any value while a preset is
 // selected switches to "user" and keeps your changes. Press "save" (or 's').
 // It writes to bin/data/:
-//   <name>.png   the image at the chosen DPI: print it at 100% scale (no "fit to page")
+//   <name>.pdf   the whole sheet (A4 etc.) in vector shapes at its real size: print it
+//                at 100% / "actual size" (not "fit to page"). Under the board there is
+//                a 50 mm bar: measure it to check the printer kept the scale.
 //   <name>.yml   the board definition for ofxAruco (load it with aruco.loadBoard(...))
 //
 // Presets (the dictionary is not part of a preset, it stays as you set it):
@@ -27,8 +29,9 @@
 // length in the .yml if your printer scaled it: poses are only as accurate
 // as these numbers.
 //
-// The generated image is detected again here, as a self-check, and drawn on
-// the selected paper size so you can see if it fits.
+// The sheet is drawn by the same code as the pdf and detected again here, as a
+// self-check, so you see exactly what prints and whether it fits the paper.
+// "dpi" is only the resolution of that self-check / preview (the pdf is vector).
 //
 // example-multi-camera expects a ChArUco 7x5 board with 55 mm squares and
 // 41 mm markers (A3). If you print one of the A4 boards instead, copy its
@@ -39,6 +42,7 @@
 #include "ofMain.h"
 #include "ofxAruco.h"
 #include "ofxGui.h"
+#include <cairo/cairo.h>
 
 class ofApp : public ofBaseApp {
 public:
@@ -67,7 +71,9 @@ public:
 	void saveSettings();
 
 	void rebuild();
-	void drawCutLines();
+	void drawSheet(cairo_t * cr) const; // in mm
+	bool renderPage();                   // drawSheet -> pagePixels
+	bool savePdf(const std::string & path) const;
 	void save();
 	std::string getFileName() const;
 
@@ -96,9 +102,13 @@ public:
 	bool applying = false; // true while we set parameters ourselves
 
 	ofxArucoBoard board;
-	ofPixels pixels;
 	ofTexture preview;
 	ofxAruco checker;
+	ofPixels pagePixels; // the whole sheet as it will be printed: preview and self-check
+	bool ready = false;  // a valid board, drawn
+	float boardW = 0, boardH = 0, boardX = 0, boardY = 0; // mm, on the page (without margin)
+	float sheetW = 0, sheetH = 0; // the paper, turned like the board (mm)
+	float pageW = 0, pageH = 0;   // the pdf page: the paper, or bigger if the board doesn't fit
 	std::string status;
 	bool fitsPaper = true;
 	bool dirty = true;

@@ -113,8 +113,9 @@ and `"type": "custom"` (markers with their 4 corners in 3D, written as an ArUco 
 `aruco_bc_markers`, in meters, so ArUco tools can read it; `load()` also reads ArUco marker maps in meters). Old ArUco 1.x
 `boardConfiguration.yml` files load with `board.loadLegacyAruco(path, markerLength, dictionary)`.
 
-Print boards with **example-print-boards**: it writes a PNG that prints at the
-right physical size at 100% scale, plus the matching YAML. Always measure the
+Print boards with **example-print-boards**: it writes a PDF of the whole sheet
+(A4 etc.) in vector shapes at the real size, plus the matching YAML. Print it at
+100% / "actual size" and measure the 50 mm bar under the board. Always measure the
 printed board and fix the lengths in the YAML if the printer scaled it.
 It has presets on a slider: A4 ChArUco boards 4x3, 7x5 and 10x8, A4 sheets of
 cut-out marker cards with the same counts and marker sizes (ids 20 and up), an
@@ -161,6 +162,8 @@ mode of each aspect ratio, a quick verification of the scaled result for the oth
 result for the resolution you run at with
 `intrinsics.loadForResolution("calibrations/mycam", width, height)`.
 `example-calibrate-camera` is a complete tool built on these: it lists a USB / built in camera's native modes (macOS, Windows) and calibrates them all, saving `calibrations/<camera>/<camera>_<width>x<height>.yml`. `example-calibrate-blackmagic` does the same for cameras on a Blackmagic capture device, `example-calibrate-ios` for the back cameras of iPhones and iPads.
+
+[KINECT_ALIGNMENT.md](KINECT_ALIGNMENT.md) describes aligning two Azure Kinects (factory intrinsics, IMU gravity from the first, the second solved to the first from marker point pairs) and saving one combined mesh.
 
 
 Multi camera calibration

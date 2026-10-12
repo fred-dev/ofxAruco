@@ -65,6 +65,11 @@ cv::aruco::Dictionary getDictionary(int dictionary) {
 	return cv::aruco::getPredefinedDictionary(dictionary);
 }
 
+int getDictionarySize(int dictionary) {
+	if (dictionaryToName(dictionary).empty()) return 0;
+	return cv::aruco::getPredefinedDictionary(dictionary).bytesList.rows;
+}
+
 glm::mat4 toMat4(const cv::Vec3d & rvec, const cv::Vec3d & tvec) {
 	cv::Matx33d R;
 	cv::Rodrigues(rvec, R);

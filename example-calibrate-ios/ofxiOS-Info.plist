@@ -24,17 +24,13 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>The camera is calibrated with a printed ChArUco board.</string>
+	<string>This app needs to access the camera</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>This app makes use of your Location</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app needs to access the microphone</string>
 	<key>UIApplicationExitsOnSuspend</key>
-	<true/>
-	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
@@ -43,6 +39,9 @@
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>

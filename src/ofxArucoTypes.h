@@ -88,6 +88,8 @@ namespace ofxArucoUtils {
 	int dictionaryFromName(const std::string & name);
 	std::string dictionaryToName(int dictionary);
 	cv::aruco::Dictionary getDictionary(int dictionary);
+	// Number of markers in a dictionary (valid ids are 0 .. size - 1), 0 if unknown.
+	int getDictionarySize(int dictionary);
 
 	// Rodrigues rvec/tvec <-> 4x4 matrix (OpenCV camera convention).
 	glm::mat4 toMat4(const cv::Vec3d & rvec, const cv::Vec3d & tvec);

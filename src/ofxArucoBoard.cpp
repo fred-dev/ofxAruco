@@ -51,6 +51,24 @@ ofxArucoBoard ofxArucoBoard::makeCustom(int dict, const std::vector<int> & ids,
 }
 
 void ofxArucoBoard::rebuild() {
+	// every id must exist in the dictionary (OpenCV asserts later otherwise)
+	const int dictSize = ofxArucoUtils::getDictionarySize(dictionary);
+	int lastId = -1;
+	switch (type) {
+	case Type::Charuco: lastId = firstMarkerId + (countX * countY) / 2 - 1; break;
+	case Type::Grid: lastId = firstMarkerId + countX * countY - 1; break;
+	case Type::Custom:
+		for (int id : customIds) lastId = std::max(lastId, id);
+		break;
+	case Type::None: return;
+	}
+	const int firstId = type == Type::Custom ? (customIds.empty() ? 0 : *std::min_element(customIds.begin(), customIds.end())) : firstMarkerId;
+	if (dictSize <= 0 || firstId < 0 || lastId >= dictSize) {
+		ofLogError("ofxArucoBoard") << "marker ids " << firstId << " - " << lastId << " don't exist in "
+									<< ofxArucoUtils::dictionaryToName(dictionary) << " (ids 0 - " << dictSize - 1 << ")";
+		type = Type::None;
+		return;
+	}
 	const auto dict = ofxArucoUtils::getDictionary(dictionary);
 	auto makeIds = [&](int n) {
 		std::vector<int> ids(n);
@@ -350,7 +368,13 @@ void ofxArucoBoard::getImage(ofPixels & pixels, int widthPixels, int marginPixel
 	const int w = widthPixels + 2 * marginPixels;
 	const int h = int(std::round(widthPixels * s.y / s.x)) + 2 * marginPixels;
 	cv::Mat img;
-	board.generateImage(cv::Size(w, h), img, marginPixels, 1);
+	try {
+		board.generateImage(cv::Size(w, h), img, marginPixels, 1);
+	} catch (const cv::Exception & e) {
+		ofLogError("ofxArucoBoard") << "getImage: " << e.what();
+		pixels.clear();
+		return;
+	}
 	pixels.setFromPixels(img.data, img.cols, img.rows, OF_PIXELS_GRAY);
 }
 
