@@ -28,6 +28,13 @@ struct ofxArucoMarker {
 	// Image corners in pixels, clockwise starting at the marker's top-left
 	// (as printed): top-left, top-right, bottom-right, bottom-left.
 	std::array<glm::vec2, 4> corners;
+	// The dictionary it was found with (cv::aruco::PredefinedDictionaryType). Markers of
+	// other dictionaries (boards, "any dictionary") report the smallest dictionary of their
+	// family that holds the id, e.g. DICT_4X4_50 for 4X4 marker 45.
+	int dictionary = -1;
+	// Side used for the pose (meters): the length set for this marker, its board's marker
+	// length, or the detector's markerLength.
+	float length = 0;
 
 	// Pose is only valid when the detector has camera intrinsics
 	// and a marker length > 0.
@@ -90,6 +97,17 @@ namespace ofxArucoUtils {
 	cv::aruco::Dictionary getDictionary(int dictionary);
 	// Number of markers in a dictionary (valid ids are 0 .. size - 1), 0 if unknown.
 	int getDictionarySize(int dictionary);
+	// Families: DICT_4X4_50 / 100 / 250 / 1000 are the first 50 / 100 / ... markers of
+	// the same list (same for 5X5, 6X6 and 7X7), so marker 45 is the same marker in all
+	// of them. getDictionaryFamily() gives the family's largest dictionary
+	// (DICT_4X4_1000 for DICT_4X4_50; the dictionary itself for the others), -1 if unknown.
+	int getDictionaryFamily(int dictionary);
+	// The smallest dictionary of the family that holds the id (DICT_4X4_50 for 4X4 id 45).
+	int getSmallestDictionary(int dictionary, int id);
+	// One dictionary per family (the largest): every marker OpenCV knows.
+	const std::vector<int> & getAllDictionaryFamilies();
+	// "DICT_4X4_50" -> "4X4_50"
+	std::string dictionaryToShortName(int dictionary);
 
 	// Rodrigues rvec/tvec <-> 4x4 matrix (OpenCV camera convention).
 	glm::mat4 toMat4(const cv::Vec3d & rvec, const cv::Vec3d & tvec);

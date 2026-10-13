@@ -23,6 +23,20 @@
 //
 // Use one ofxAruco per camera; each one has its own thread.
 //
+// Dictionaries: the detector's dictionary is searched with OpenCV's full detector.
+// Boards in other dictionaries are found too (one more OpenCV pass per dictionary),
+// and with `anyDictionary` on, markers of EVERY predefined dictionary are recognised
+// (ArUco 4X4 .. 7X7, original ArUco, AprilTag, ArUco MIP): one extra pass that finds
+// the marker shapes once and looks their codes up in all dictionaries. That pass only
+// takes exact codes (no bit error correction), so very blurry or tiny markers of
+// those dictionaries may be missed; put the dictionary you use most in `dictionary`.
+// Each marker reports its dictionary (ofxArucoMarker::dictionary).
+//
+// Marker sizes: a marker's pose needs its printed side. It is, in order: the length set
+// with setMarkerLength(dictionary, id, ...), the marker length of a board that holds
+// that id (a single marker .yml from example-print-boards is a board too), or
+// `markerLength`.
+//
 // All poses are in the OpenCV camera frame (x right, y down, z forward), in the
 // units of your marker/board sizes (use meters). See ofxArucoTypes.h.
 
@@ -34,6 +48,7 @@
 #include "ofxArucoCalibrator.h"
 
 #include <atomic>
+#include <map>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -59,17 +74,25 @@ public:
 	bool loadIntrinsics(const std::string & path);
 	const ofxArucoIntrinsics & getIntrinsics() const { return intrinsics; }
 
-	// Boards: returns the board index, or -1 on failure. All boards should use the
-	// same dictionary as the detector (a warning is logged otherwise).
+	// Boards: returns the board index, or -1 on failure. Boards can use any dictionary:
+	// markers of their dictionary are searched for too.
 	int addBoard(const ofxArucoBoard & board);
 	int loadBoard(const std::string & path); // .yml (default) or .json, see ofxArucoBoard::load()
 	void clearBoards();
 	const std::vector<ofxArucoBoard> & getBoards() const { return boards; }
 
+	// Printed side (meters) of one marker, for its pose. `dictionary` can be any size of
+	// the family (DICT_4X4_50 and DICT_4X4_1000 are the same markers).
+	void setMarkerLength(int dictionary, int id, float length);
+	void clearMarkerLengths();
+	// What the pose of that marker uses (see "Marker sizes" above).
+	float getMarkerLength(int dictionary, int id) const;
+
 	// -- settings (ofParameters: add `aruco.parameters` to an ofxPanel) --------
 	ofParameterGroup parameters;
 	ofParameter<int> dictionary;              // cv::aruco::PredefinedDictionaryType
 	ofReadOnlyParameter<std::string, ofxAruco> dictionaryName;
+	ofParameter<bool> anyDictionary;          // recognise markers of every predefined dictionary too
 	ofParameter<float> markerLength;          // side of single markers (meters). Needed for single marker poses
 	ofParameter<bool> estimateMarkerPoses;
 	ofParameter<bool> estimateBoardPoses;
@@ -167,6 +190,7 @@ private:
 	bool isSetup = false;
 	ofxArucoIntrinsics intrinsics;
 	std::vector<ofxArucoBoard> boards;
+	std::map<std::pair<int, int>, float> markerLengths; // (dictionary family, id) -> meters
 	std::shared_ptr<const Config> config;
 	bool configDirty = true;
 	ofxArucoResult result;

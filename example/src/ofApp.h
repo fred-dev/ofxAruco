@@ -1,21 +1,26 @@
 #pragma once
 
-// ofxAruco basic example: detect markers and a board in one camera, draw
-// their 3D poses on top of the image.
+// ofxAruco basic example: recognise any marker, and any board you give it, in one
+// camera, and draw their 3D poses on top of the image.
 //
-// It runs out of the box on bin/data/videoboard.mp4 (a board made of
-// DICT_ARUCO_ORIGINAL markers). Press 'v' to switch to a webcam: the webcam
-// uses YOUR printed board, myBoardFile below (saved by example-print-boards),
-// and its dictionary, so single markers of that dictionary are found as well.
+// - Markers: with "any dictionary" on (key 'a'), markers of every OpenCV dictionary
+//   are recognised (ArUco 4X4 .. 7X7, original ArUco, AprilTag, ArUco MIP). Each one is
+//   labelled with its id, and its dictionary when it isn't the main one.
+// - Boards: every board .yml in bin/data is loaded (the ones example-print-boards saves:
+//   ChArUco, grid, cards, single markers), whatever its dictionary. 'r' reloads them.
+// - Sizes: a single marker's pose needs its printed side. Markers that are in a loaded
+//   .yml use that file's marker length (so copy the .yml of a marker you printed, e.g.
+//   marker_45_170mm_DICT_4X4_50.yml, into bin/data). Others use "marker length (m)" in
+//   the aruco panel.
 //
-// The detector finds every marker of its dictionary: there is nothing to
-// declare for single markers. You only need the right dictionary, and the
-// printed marker side (aruco.markerLength) for their 3D poses.
+// It runs out of the box on bin/data/videoboard.mp4 (a board of original ArUco markers,
+// boardConfiguration.yml). Press 'v' to switch to a webcam.
 //
 // Files in bin/data:
 //   intrinsics.yml          camera calibration of the camera that filmed the video
+//                           (your webcam needs its own: example-calibrate-camera)
 //   boardConfiguration.yml  old ArUco 1.x board layout of the video
-//   charuco_...yml          your board, copied from example-print-boards/bin/data
+//   *.yml                   your boards and markers, from example-print-boards/bin/data
 //   settings.json           GUI settings (created when you press 's')
 
 #include "ofMain.h"
@@ -31,11 +36,7 @@ public:
 
 	void useVideoFile();
 	void useWebcam(int deviceId);
-	void useVideoBoard();
-	void useMyBoard();
-
-	// the board you printed, used with the webcam
-	std::string myBoardFile = "charuco_7x5_36mm_27mm_DICT_5X5_100_id0.yml";
+	void loadBoards();
 
 	ofVideoPlayer player;
 	ofVideoGrabber grabber;
@@ -43,12 +44,13 @@ public:
 	bool usingWebcam = false;
 
 	ofxAruco aruco;
+	std::vector<std::string> boardInfo; // what was loaded, and warnings
 
 	ofxPanel gui;
 	bool showGui = true;
 	ofParameter<bool> drawMarkers{ "draw markers", true };
 	ofParameter<bool> drawCubes{ "draw 3D cubes", true };
-	ofParameter<bool> drawBoard{ "draw board", true };
+	ofParameter<bool> drawBoard{ "draw boards", true };
 	ofParameter<bool> drawRejected{ "draw rejected", false };
 	ofParameter<bool> threaded{ "threaded", true };
 	ofEventListener threadedListener;

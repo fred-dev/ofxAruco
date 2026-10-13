@@ -5,6 +5,10 @@
 #include <opencv2/objdetect/aruco_detector.hpp>
 #include <opencv2/objdetect/charuco_detector.hpp>
 
+#include <algorithm>
+#include <functional>
+#include <unordered_map>
+
 using namespace ofxArucoUtils;
 
 // Immutable snapshot of everything the worker needs. A new one is created on the
@@ -16,6 +20,10 @@ struct ofxAruco::Config {
 	cv::aruco::RefineParameters refineParams;
 	ofxArucoIntrinsics intrinsics;
 	std::vector<ofxArucoBoard> boards;
+	std::vector<int> boardPass;        // per board: -1 found by the main detector, k by extraDictionaries[k]
+	std::vector<int> extraDictionaries; // boards in other dictionaries: one more OpenCV pass each
+	std::vector<int> anyFamilies;       // "any dictionary": families looked up in the extra pass
+	std::map<std::pair<int, int>, float> markerLengths; // (family, id) -> meters: set by the app, then from boards
 	float markerLength = 0;
 	bool estimateMarkerPoses = true;
 	bool estimateBoardPoses = true;
@@ -83,6 +91,188 @@ namespace {
 		m.reprojectionError = best;
 	}
 
+	// --- "any dictionary" -------------------------------------------------------
+	// Finds marker shapes once (like OpenCV: adaptive thresholds, contours, convex
+	// quads), reads their bits for every marker size and looks the codes up in hash
+	// tables of every dictionary: one pass for all dictionaries, exact codes only.
+
+	uint64_t toCode(const cv::Mat & bits) {
+		uint64_t code = 0;
+		for (int y = 0; y < bits.rows; y++) {
+			for (int x = 0; x < bits.cols; x++) code = (code << 1) | (bits.at<uchar>(y, x) ? 1 : 0);
+		}
+		return code;
+	}
+
+	struct CodeTable {
+		int family = -1;
+		int markerSize = 0;
+		std::unordered_map<uint64_t, std::pair<int, int>> codes; // code -> id, clockwise quarter turns
+	};
+
+	// Built once per family and kept (a few thousand codes x 4 rotations).
+	const CodeTable & getCodeTable(int family) {
+		static std::mutex mutex;
+		static std::map<int, CodeTable> tables;
+		std::lock_guard<std::mutex> lock(mutex);
+		auto it = tables.find(family);
+		if (it != tables.end()) return it->second;
+		CodeTable & t = tables[family];
+		const cv::aruco::Dictionary dict = cv::aruco::getPredefinedDictionary(family);
+		t.family = family;
+		t.markerSize = dict.markerSize;
+		cv::Mat bits, turned;
+		for (int id = 0; id < dict.bytesList.rows; id++) {
+			bits = cv::aruco::Dictionary::getBitsFromByteList(dict.bytesList.rowRange(id, id + 1), dict.markerSize);
+			for (int r = 0; r < 4; r++) {
+				t.codes.emplace(toCode(bits), std::make_pair(id, r));
+				cv::rotate(bits, turned, cv::ROTATE_90_CLOCKWISE);
+				bits = turned.clone();
+			}
+		}
+		return t;
+	}
+
+	cv::Point2f centreOf(const std::vector<cv::Point2f> & q) {
+		return (q[0] + q[1] + q[2] + q[3]) * 0.25f;
+	}
+
+	bool insideAny(const std::vector<std::vector<cv::Point2f>> & quads, const cv::Point2f & p) {
+		for (auto & q : quads) {
+			if (cv::pointPolygonTest(q, p, false) >= 0) return true;
+		}
+		return false;
+	}
+
+	struct AnyMarker {
+		int dictionary = -1;
+		int id = -1;
+		int markerSize = 0;
+		std::vector<cv::Point2f> corners;
+	};
+
+	std::vector<AnyMarker> scanAnyDictionary(const cv::Mat & gray, const std::vector<int> & families,
+		const cv::aruco::DetectorParameters & p) {
+		std::vector<AnyMarker> found;
+		if (families.empty() || gray.empty()) return found;
+
+		std::vector<const CodeTable *> tables;
+		std::vector<int> sizes;
+		for (int f : families) {
+			tables.push_back(&getCodeTable(f));
+			sizes.push_back(tables.back()->markerSize);
+		}
+		// largest grids first: reading a marker with fewer cells than it has gives
+		// noise, not a code, while the other way round can match by chance
+		std::sort(sizes.begin(), sizes.end(), std::greater<int>());
+		sizes.erase(std::unique(sizes.begin(), sizes.end()), sizes.end());
+
+		const double maxSide = std::max(gray.cols, gray.rows);
+		const double minPerimeter = p.minMarkerPerimeterRate * maxSide, maxPerimeter = p.maxMarkerPerimeterRate * maxSide;
+		const int cell = std::max(2, p.perspectiveRemovePixelPerCell);
+		const int cellMargin = int(p.perspectiveRemoveIgnoredMarginPerCell * cell);
+		const int inner = std::max(1, cell - 2 * cellMargin);
+		const int B = std::max(1, p.markerBorderBits);
+		const float border = float(p.minDistanceToBorder);
+
+		cv::Mat thresh, warped;
+		std::vector<std::vector<cv::Point>> contours;
+		std::vector<cv::Point> approx;
+		const int step = std::max(1, p.adaptiveThreshWinSizeStep);
+		for (int win = std::max(3, p.adaptiveThreshWinSizeMin); win <= std::max(3, p.adaptiveThreshWinSizeMax); win += step) {
+			cv::adaptiveThreshold(gray, thresh, 255, cv::ADAPTIVE_THRESH_MEAN_C, cv::THRESH_BINARY_INV, win % 2 ? win : win + 1,
+				p.adaptiveThreshConstant);
+			cv::findContours(thresh, contours, cv::RETR_LIST, cv::CHAIN_APPROX_NONE);
+			for (auto & contour : contours) {
+				const double perimeter = double(contour.size());
+				if (perimeter < minPerimeter || perimeter > maxPerimeter) continue;
+				cv::approxPolyDP(contour, approx, perimeter * p.polygonalApproxAccuracyRate, true);
+				if (approx.size() != 4 || !cv::isContourConvex(approx)) continue;
+				double minSide2 = std::numeric_limits<double>::max();
+				bool nearBorder = false;
+				for (int k = 0; k < 4; k++) {
+					const cv::Point d = approx[k] - approx[(k + 1) % 4];
+					minSide2 = std::min(minSide2, double(d.dot(d)));
+					nearBorder |= approx[k].x < border || approx[k].y < border || approx[k].x > gray.cols - 1 - border
+						|| approx[k].y > gray.rows - 1 - border;
+				}
+				if (nearBorder || minSide2 < std::pow(p.minCornerDistanceRate * perimeter, 2)) continue;
+
+				std::vector<cv::Point2f> q(approx.begin(), approx.end());
+				const cv::Point2f d1 = q[1] - q[0], d2 = q[2] - q[0];
+				if (d1.x * d2.y - d1.y * d2.x < 0) std::swap(q[1], q[3]); // clockwise in the image (y down)
+
+				// the same marker again (another threshold window, the other edge of its border)
+				const cv::Point2f centre = centreOf(q);
+				const float side = std::sqrt(float(std::abs(cv::contourArea(q))));
+				bool known = false;
+				for (auto & f : found) known |= cv::norm(centreOf(f.corners) - centre) < 0.3f * side;
+				if (known) continue;
+
+				bool matched = false;
+				for (int n : sizes) {
+					const int s = n + 2 * B, S = s * cell;
+					const cv::Point2f dst[4] = { { 0, 0 }, { S - 1.f, 0 }, { S - 1.f, S - 1.f }, { 0, S - 1.f } };
+					cv::warpPerspective(gray, warped, cv::getPerspectiveTransform(q.data(), dst), cv::Size(S, S), cv::INTER_NEAREST);
+					cv::Scalar mean, stddev;
+					cv::meanStdDev(warped(cv::Rect(cell / 2, cell / 2, S - cell, S - cell)), mean, stddev);
+					if (stddev[0] < p.minOtsuStdDev) break; // flat: not a marker at any size
+					cv::threshold(warped, warped, 125, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
+					cv::Mat bits(s, s, CV_8UC1);
+					for (int y = 0; y < s; y++) {
+						for (int x = 0; x < s; x++) {
+							const cv::Mat square = warped(cv::Rect(x * cell + cellMargin, y * cell + cellMargin, inner, inner));
+							bits.at<uchar>(y, x) = cv::countNonZero(square) * 2 > int(square.total()) ? 1 : 0;
+						}
+					}
+					// the border must be black (white for inverted markers)
+					auto borderErrors = [&](const cv::Mat & b) {
+						int e = 0;
+						for (int y = 0; y < s; y++) {
+							for (int x = 0; x < s; x++) {
+								if ((y < B || y >= s - B || x < B || x >= s - B) && b.at<uchar>(y, x)) e++;
+							}
+						}
+						return e;
+					};
+					const int maxErrors = int(n * n * p.maxErroneousBitsInBorderRate);
+					if (borderErrors(bits) > maxErrors) {
+						if (!p.detectInvertedMarker) continue;
+						bits = 1 - bits;
+						if (borderErrors(bits) > maxErrors) continue;
+					}
+					const uint64_t code = toCode(bits(cv::Rect(B, B, n, n)));
+					for (auto * t : tables) {
+						if (t->markerSize != n) continue;
+						auto it = t->codes.find(code);
+						if (it == t->codes.end()) continue;
+						AnyMarker m;
+						m.id = it->second.first;
+						m.dictionary = ofxArucoUtils::getSmallestDictionary(t->family, m.id);
+						m.markerSize = n;
+						const int r = it->second.second; // the printed top-left corner is r corners further
+						for (int k = 0; k < 4; k++) m.corners.push_back(q[(k + r) % 4]);
+						found.push_back(std::move(m));
+						matched = true;
+						break;
+					}
+					if (matched) break;
+				}
+			}
+		}
+
+		if (p.cornerRefinementMethod != cv::aruco::CORNER_REFINE_NONE) {
+			const cv::TermCriteria criteria(cv::TermCriteria::MAX_ITER | cv::TermCriteria::EPS,
+				std::max(1, p.cornerRefinementMaxIterations), p.cornerRefinementMinAccuracy);
+			for (auto & m : found) {
+				const float cellPx = std::sqrt(float(std::abs(cv::contourArea(m.corners)))) / float(m.markerSize + 2 * B);
+				const int half = std::max(2, std::min(p.cornerRefinementWinSize, int(cellPx * 0.5f)));
+				cv::cornerSubPix(gray, m.corners, cv::Size(half, half), cv::Size(-1, -1), criteria);
+			}
+		}
+		return found;
+	}
+
 	bool isPlanar(const std::vector<cv::Point3f> & obj) {
 		for (auto & p : obj) {
 			if (std::abs(p.z) > 1e-6f) return false;
@@ -95,6 +285,7 @@ namespace {
 struct ofxAruco::Worker {
 	std::shared_ptr<const Config> config;
 	cv::aruco::ArucoDetector detector;
+	std::vector<cv::aruco::ArucoDetector> extraDetectors; // one per Config::extraDictionaries
 	std::vector<std::unique_ptr<cv::aruco::CharucoDetector>> charucoDetectors;
 	ofxArucoIntrinsics scaledIntrinsics; // intrinsics at the current image size
 	cv::Size scaledFor;
@@ -103,6 +294,11 @@ struct ofxAruco::Worker {
 		if (c == config) return;
 		config = c;
 		detector = cv::aruco::ArucoDetector(getDictionary(c->dictionary), c->detectorParams, c->refineParams);
+		extraDetectors.clear();
+		for (int d : c->extraDictionaries) {
+			extraDetectors.emplace_back(getDictionary(d), c->detectorParams, c->refineParams);
+		}
+		for (int f : c->anyFamilies) getCodeTable(f); // build the tables now, not on the first frame
 		scaledFor = cv::Size();
 		charucoDetectors.clear();
 		for (auto & b : c->boards) {
@@ -155,24 +351,58 @@ struct ofxAruco::Worker {
 		std::vector<int> ids;
 		detector.detectMarkers(gray, corners, ids, rejected);
 
-		if (c.refineWithBoards) {
-			for (auto & b : c.boards) {
-				detector.refineDetectedMarkers(gray, b.getCvBoard(), corners, ids, rejected,
+		auto refine = [&](cv::aruco::ArucoDetector & d, int pass, std::vector<std::vector<cv::Point2f>> & mc, std::vector<int> & mi,
+						  std::vector<std::vector<cv::Point2f>> & mr) {
+			if (!c.refineWithBoards) return;
+			for (size_t b = 0; b < c.boards.size(); b++) {
+				if (c.boardPass[b] != pass) continue;
+				d.refineDetectedMarkers(gray, c.boards[b].getCvBoard(), mc, mi, mr,
 					hasK ? cv::InputArray(K) : cv::noArray(), hasK ? cv::InputArray(D) : cv::noArray());
+			}
+		};
+		refine(detector, -1, corners, ids, rejected);
+		std::vector<int> dicts(ids.size(), c.dictionary);
+
+		// boards in other dictionaries
+		for (size_t k = 0; k < extraDetectors.size(); k++) {
+			std::vector<std::vector<cv::Point2f>> ec, er;
+			std::vector<int> ei;
+			extraDetectors[k].detectMarkers(gray, ec, ei, er);
+			refine(extraDetectors[k], int(k), ec, ei, er);
+			for (size_t i = 0; i < ei.size(); i++) {
+				if (insideAny(corners, centreOf(ec[i]))) continue;
+				corners.push_back(ec[i]);
+				ids.push_back(ei[i]);
+				dicts.push_back(c.extraDictionaries[k]);
+			}
+		}
+
+		// every other dictionary
+		if (!c.anyFamilies.empty()) {
+			for (auto & a : scanAnyDictionary(gray, c.anyFamilies, c.detectorParams)) {
+				if (insideAny(corners, centreOf(a.corners))) continue;
+				corners.push_back(a.corners);
+				ids.push_back(a.id);
+				dicts.push_back(a.dictionary);
 			}
 		}
 
 		// --- single markers
-		const float L = c.markerLength;
-		const std::vector<cv::Point3f> markerObj = {
-			{ -L / 2, L / 2, 0 }, { L / 2, L / 2, 0 }, { L / 2, -L / 2, 0 }, { -L / 2, -L / 2, 0 }
-		};
+		std::vector<int> families(ids.size());
 		r.markers.resize(ids.size());
 		for (size_t i = 0; i < ids.size(); i++) {
 			auto & m = r.markers[i];
 			m.id = ids[i];
+			m.dictionary = dicts[i];
+			families[i] = ofxArucoUtils::getDictionaryFamily(dicts[i]);
 			for (int k = 0; k < 4; k++) m.corners[k] = { corners[i][k].x, corners[i][k].y };
+			auto it = c.markerLengths.find({ families[i], m.id });
+			const float L = it != c.markerLengths.end() ? it->second : c.markerLength;
+			m.length = L;
 			if (hasK && c.estimateMarkerPoses && L > 0) {
+				const std::vector<cv::Point3f> markerObj = {
+					{ -L / 2, L / 2, 0 }, { L / 2, L / 2, 0 }, { L / 2, -L / 2, 0 }, { -L / 2, -L / 2, 0 }
+				};
 				estimateMarkerPose(markerObj, corners[i], K, D, m);
 			}
 		}
@@ -184,22 +414,30 @@ struct ofxAruco::Worker {
 			auto & bp = r.boards[b];
 			bp.boardIndex = int(b);
 			bp.name = board.getName();
-			if (ids.empty()) continue;
+
+			// the markers of the board's dictionary
+			const int family = ofxArucoUtils::getDictionaryFamily(board.getDictionary());
+			std::vector<std::vector<cv::Point2f>> mc;
+			std::vector<int> mi;
+			for (size_t i = 0; i < ids.size(); i++) {
+				if (families[i] != family) continue;
+				mc.push_back(corners[i]);
+				mi.push_back(ids[i]);
+			}
+			if (mi.empty()) continue;
 
 			std::vector<cv::Point3f> obj;
 			std::vector<cv::Point2f> img;
 			if (charucoDetectors[b]) {
 				std::vector<cv::Point2f> chCorners;
 				std::vector<int> chIds;
-				auto mc = corners;
-				auto mi = ids;
 				charucoDetectors[b]->detectBoard(gray, chCorners, chIds, mc, mi);
 				if (chIds.size() >= 4 && !board.getCvCharuco().checkCharucoCornersCollinear(chIds)) {
 					board.getCvCharuco().matchImagePoints(chCorners, chIds, obj, img);
 					bp.charucoIds = chIds;
 				}
 			} else {
-				board.getCvBoard().matchImagePoints(corners, ids, obj, img);
+				board.getCvBoard().matchImagePoints(mc, mi, obj, img);
 			}
 
 			bp.numPoints = int(obj.size());
@@ -239,6 +477,7 @@ ofxAruco::ofxAruco() {
 	parameters.add(dictionary.set("dictionary", cv::aruco::DICT_5X5_100, 0, cv::aruco::DICT_ARUCO_MIP_36h12));
 	parameters.add(dictionaryName.set("dictionary name", dictionaryToName(dictionary)));
 	dictionaryName.setSerializable(false);
+	parameters.add(anyDictionary.set("any dictionary", false));
 	parameters.add(markerLength.set("marker length (m)", 0.05f, 0.001f, 1.f));
 	parameters.add(estimateMarkerPoses.set("marker poses", true));
 	parameters.add(estimateBoardPoses.set("board poses", true));
@@ -311,10 +550,9 @@ int ofxAruco::addBoard(const ofxArucoBoard & board) {
 		ofLogError("ofxAruco") << "addBoard: invalid board";
 		return -1;
 	}
-	if (board.getDictionary() != dictionary) {
-		ofLogWarning("ofxAruco") << "board '" << board.getName() << "' uses " << dictionaryToName(board.getDictionary())
-								 << " but the detector uses " << dictionaryToName(dictionary)
-								 << ". Markers of the board will not be found unless you change the detector dictionary.";
+	if (getDictionaryFamily(board.getDictionary()) != getDictionaryFamily(dictionary)) {
+		ofLogNotice("ofxAruco") << "board '" << board.getName() << "' uses " << dictionaryToName(board.getDictionary())
+								<< ", the detector " << dictionaryToName(dictionary) << ": its markers are searched in an extra pass";
 	}
 	boards.push_back(board);
 	markConfigDirty();
@@ -330,6 +568,33 @@ int ofxAruco::loadBoard(const std::string & path) {
 void ofxAruco::clearBoards() {
 	boards.clear();
 	markConfigDirty();
+}
+
+void ofxAruco::setMarkerLength(int dict, int id, float length) {
+	const int family = getDictionaryFamily(dict);
+	if (family < 0) {
+		ofLogError("ofxAruco") << "setMarkerLength: unknown dictionary " << dict;
+		return;
+	}
+	markerLengths[{ family, id }] = length;
+	markConfigDirty();
+}
+
+void ofxAruco::clearMarkerLengths() {
+	markerLengths.clear();
+	markConfigDirty();
+}
+
+float ofxAruco::getMarkerLength(int dict, int id) const {
+	const int family = getDictionaryFamily(dict);
+	auto it = markerLengths.find({ family, id });
+	if (it != markerLengths.end()) return it->second;
+	for (auto & b : boards) {
+		if (b.getMarkerLength() <= 0 || getDictionaryFamily(b.getDictionary()) != family) continue;
+		const auto & ids = b.getCvBoard().getIds();
+		if (std::find(ids.begin(), ids.end(), id) != ids.end()) return b.getMarkerLength();
+	}
+	return markerLength;
 }
 
 bool ofxAruco::saveSettings(const std::string & path) const {
@@ -371,6 +636,41 @@ std::shared_ptr<const ofxAruco::Config> ofxAruco::makeConfig() const {
 	p.minMarkerLengthRatioOriginalImg = aruco3MinMarkerRatio;
 	c->intrinsics = intrinsics;
 	c->boards = boards;
+
+	// boards the main detector doesn't cover (another family, or ids past its size) get their own pass
+	const int primaryFamily = getDictionaryFamily(dictionary);
+	for (auto & b : boards) {
+		const int d = b.getDictionary(), f = getDictionaryFamily(d);
+		int pass = -1;
+		if (f != primaryFamily || getDictionarySize(d) > getDictionarySize(dictionary)) {
+			pass = -2;
+			for (size_t k = 0; k < c->extraDictionaries.size(); k++) {
+				const int e = c->extraDictionaries[k];
+				if (getDictionaryFamily(e) != f) continue;
+				if (getDictionarySize(d) > getDictionarySize(e)) c->extraDictionaries[k] = d; // the larger one holds both
+				pass = int(k);
+			}
+			if (pass == -2) {
+				c->extraDictionaries.push_back(d);
+				pass = int(c->extraDictionaries.size()) - 1;
+			}
+		}
+		c->boardPass.push_back(pass);
+	}
+	if (anyDictionary) {
+		for (int f : getAllDictionaryFamilies()) {
+			bool covered = f == primaryFamily;
+			for (int e : c->extraDictionaries) covered |= getDictionaryFamily(e) == f;
+			if (!covered) c->anyFamilies.push_back(f);
+		}
+	}
+	// marker sizes: the ones set by the app, then the boards' (first board wins)
+	c->markerLengths = markerLengths;
+	for (auto & b : boards) {
+		if (b.getMarkerLength() <= 0) continue;
+		const int f = getDictionaryFamily(b.getDictionary());
+		for (int id : b.getCvBoard().getIds()) c->markerLengths.emplace(std::make_pair(f, id), b.getMarkerLength());
+	}
 	c->markerLength = markerLength;
 	c->estimateMarkerPoses = estimateMarkerPoses;
 	c->estimateBoardPoses = estimateBoardPoses;
@@ -595,7 +895,9 @@ void ofxAruco::drawMarkers(const ofRectangle & viewport, bool drawIds) const {
 		ofSetColor(255, 0, 0);
 		ofDrawCircle(o + m.corners[0] * s, 3); // first (top-left) corner
 		if (drawIds) {
-			ofDrawBitmapStringHighlight(ofToString(m.id), o + m.getCenter() * s, ofColor(0, 0, 0, 160), ofColor::yellow);
+			std::string label = ofToString(m.id);
+			if (getDictionaryFamily(m.dictionary) != getDictionaryFamily(dictionary)) label += " " + dictionaryToShortName(m.dictionary);
+			ofDrawBitmapStringHighlight(label, o + m.getCenter() * s, ofColor(0, 0, 0, 160), ofColor::yellow);
 		}
 	}
 	ofPopStyle();
@@ -641,7 +943,7 @@ void ofxAruco::drawAxes(const ofRectangle & viewport) const {
 		if (!m.hasPose) continue;
 		ofPushMatrix();
 		ofMultMatrix(m.pose);
-		ofDrawAxis(markerLength * 0.5f);
+		ofDrawAxis((m.length > 0 ? m.length : markerLength.get()) * 0.5f);
 		ofPopMatrix();
 	}
 	for (size_t i = 0; i < result.boards.size() && i < boards.size(); i++) {

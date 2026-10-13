@@ -1,0 +1,13 @@
+%YAML:1.0
+---
+# ofxAruco board (grid). Lengths in meters.
+# Measure the printed board and fix the lengths if your printer scaled it.
+# Load with board.load("marker_45_200mm_DICT_4X4_50.yml") or aruco.loadBoard(...)
+dictionary: "DICT_4X4_50"
+firstMarkerId: 45
+markerLength: 0.2
+markerSeparation: 0.001
+markersX: 1
+markersY: 1
+name: "marker_45_200mm_DICT_4X4_50"
+type: "grid"

@@ -121,7 +121,14 @@ It has presets on a slider: A4 ChArUco boards 4x3, 7x5 and 10x8, A4 sheets of
 cut-out marker cards with the same counts and marker sizes (ids 20 and up), an
 A1 single marker, and "user" for your own settings.
 
-The detector dictionary must match the boards' dictionary.
+Dictionaries: the detector's `dictionary` gets OpenCV's full detector. Boards in other
+dictionaries are found too (an extra pass each), and with `aruco.anyDictionary = true`
+markers of every predefined dictionary are recognised (ArUco 4X4 .. 7X7, original ArUco,
+AprilTag, ArUco MIP) in one more pass that looks codes up in all of them (exact codes
+only, so keep the dictionary you use most as the main one). Each marker reports its
+`dictionary` and the `length` its pose used: `setMarkerLength(dictionary, id, meters)`,
+else the marker length of a loaded board holding that id (a single marker `.yml` from
+example-print-boards counts), else `markerLength`. The basic `example` does all of this.
 
 
 Camera intrinsics

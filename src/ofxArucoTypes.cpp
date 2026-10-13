@@ -70,6 +70,35 @@ int getDictionarySize(int dictionary) {
 	return cv::aruco::getPredefinedDictionary(dictionary).bytesList.rows;
 }
 
+int getDictionaryFamily(int dictionary) {
+	if (dictionaryToName(dictionary).empty()) return -1;
+	if (dictionary <= cv::aruco::DICT_7X7_1000) return (dictionary / 4) * 4 + 3; // 4 sizes per family: 50, 100, 250, 1000
+	return dictionary;
+}
+
+int getSmallestDictionary(int dictionary, int id) {
+	const int family = getDictionaryFamily(dictionary);
+	if (family < 0 || family > cv::aruco::DICT_7X7_1000) return family;
+	for (int d = family - 3; d <= family; d++) {
+		if (id < getDictionarySize(d)) return d;
+	}
+	return family;
+}
+
+const std::vector<int> & getAllDictionaryFamilies() {
+	static const std::vector<int> families = {
+		cv::aruco::DICT_4X4_1000, cv::aruco::DICT_5X5_1000, cv::aruco::DICT_6X6_1000, cv::aruco::DICT_7X7_1000,
+		cv::aruco::DICT_ARUCO_ORIGINAL, cv::aruco::DICT_APRILTAG_16h5, cv::aruco::DICT_APRILTAG_25h9,
+		cv::aruco::DICT_APRILTAG_36h10, cv::aruco::DICT_APRILTAG_36h11, cv::aruco::DICT_ARUCO_MIP_36h12
+	};
+	return families;
+}
+
+std::string dictionaryToShortName(int dictionary) {
+	const std::string n = dictionaryToName(dictionary);
+	return n.rfind("DICT_", 0) == 0 ? n.substr(5) : n;
+}
+
 glm::mat4 toMat4(const cv::Vec3d & rvec, const cv::Vec3d & tvec) {
 	cv::Matx33d R;
 	cv::Rodrigues(rvec, R);
